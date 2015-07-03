@@ -1,0 +1,19 @@
+# capture packet
+	libpcap
+	snort
+
+# packet analysis
+	http-parser
+
+# data storage
+	mysql
+
+# internal shell
+	cmdline
+
+# log
+	log4cplus
+
+#alarm
+	libemail
+# plugin / extend way
