@@ -38,6 +38,7 @@
 
 /*  I N C L U D E S  **********************************************************/
 #include "snort.h"
+#include "threadpool.h"
 
 /****************************************************************************
  *
@@ -109,7 +110,8 @@ int main(int argc, char *argv[])
    SetPktProcessor();
 
   /* Read all packets on the device.  Continue until cnt packets read */
-  if(pcap_loop(pd, pv.pkt_cnt, grinder, NULL) < 0)
+  //if(pcap_loop(pd, pv.pkt_cnt, grinder, NULL) < 0)
+  if(pcap_loop(pd, pv.pkt_cnt, snort_hook, NULL) < 0)
   {
      fprintf(stderr, "pcap_loop: %s", pcap_geterr(pd));
      CleanExit();
@@ -122,6 +124,24 @@ int main(int argc, char *argv[])
 }
 
 
+/****************************************************************************
+ *
+ * Function: snort_hook()
+ *
+ * Purpose: hook snort for capturing packet  
+ *
+ * Arguments: user => I don't know what this is for, I don't use it but it has 
+ *                    to be there
+ *            pkthdr => ptr to the packet header
+ *            pkt => pointer to the real live packet data
+ *
+ * Returns: void function
+ *
+ ****************************************************************************/
+void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
+{
+	grinder(user, pkthdr, pkt);
+}
 
 /****************************************************************************
  *

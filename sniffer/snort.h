@@ -284,5 +284,7 @@ char *copy_argv(char **);
 int OpenLogFile();
 void SetFlow();
 
+/*  ADD by geeksword  ******************************************************/
+void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt);
 
 #endif  /* __SNORT_H__ */

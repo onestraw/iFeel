@@ -1,9 +1,12 @@
 # capture packet
 	libpcap
-	snort
+	snort-0.96
 
 # packet analysis
 	http-parser
+
+#concurrency
+	threadpool: https://github.com/onestraw/threadpool
 
 # data storage
 	mysql
