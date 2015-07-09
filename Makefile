@@ -41,7 +41,7 @@ MY_CFLAGS =  -I./threadpool -I./plugin/dnseye -export-dynamic -g
 # The linker options.
 MY_LIBS   =  -lpcap \
 	-L./threadpool -Wl,-rpath=./threadpool -lthreadpool \
-	-L./plugin/dnseye -Wl,-rpath=./plugin/dnseye -ldnseye
+	-L./plugin/lib -Wl,-rpath=./plugin/lib -ldnseye
 
 # The pre-processor options used by the cpp (man cpp for more).
 CPPFLAGS  = -Wall
