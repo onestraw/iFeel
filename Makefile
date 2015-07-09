@@ -36,12 +36,13 @@
 ##==========================================================================
 
 # The pre-processor and compiler options.
-MY_CFLAGS =  -I./threadpool -I./plugin/dnseye -export-dynamic -g
+MY_CFLAGS =  -export-dynamic -g \
+	 -I./threadpool #-I./plugin/dnseye -I./plugin/portscan 
 
 # The linker options.
 MY_LIBS   =  -lpcap \
 	-L./threadpool -Wl,-rpath=./threadpool -lthreadpool \
-	-L./plugin/lib -Wl,-rpath=./plugin/lib -ldnseye
+	-L./plugin/lib -Wl,-rpath=./plugin/lib -ldnseye -lportscan \
 
 # The pre-processor options used by the cpp (man cpp for more).
 CPPFLAGS  = -Wall

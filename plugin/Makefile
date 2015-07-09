@@ -7,18 +7,26 @@ LDFLAGS += -g
 endif
 
 TARGETS = lib/libdnseye.so 
+TARGETS += lib/libportscan.so 
 
 all: $(TARGETS)
 
-dnseye.o: dnseye/dnseye.h dnseye/dnseye.c
+portscan.o: dnseye/dnseye.h dnseye/dnseye.c
+portscan.o: portscan/portscan.h portscan/portscan.c
 
 # Short-hand aliases
-shared: lib/libdnseye.so
+shared: lib/libportscan.so
 
 lib/libdnseye.so: dnseye/dnseye.c dnseye/dnseye.h
 	$(CC) -shared -fPIC ${CFLAGS} -o $@ $< ${LDLIBS}
 
+lib/libportscan.so: portscan/portscan.c portscan/portscan.h
+	$(CC) -shared -fPIC ${CFLAGS} -o $@ $< ${LDLIBS}
+
 libdnseye.o: dnseye/dnseye.c dnseye/dnseye.h
+	$(CC) -c -fPIC ${CFLAGS} -o $@ $<
+
+libportscan.o: portscan/portscan.c portscan/portscan.h
 	$(CC) -c -fPIC ${CFLAGS} -o $@ $<
 
 clean:

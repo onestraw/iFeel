@@ -18,7 +18,6 @@
 
 /*  I N C L U D E S  **********************************************************/
 #include "snort.h"
-//#include "dnseye.h"
 #include "threadpool.h"
 
 /****************************************************************************
@@ -106,6 +105,7 @@ int main(int argc, char *argv[])
 }
 
 extern void dnseye(char*, struct pcap_pkthdr*, u_char *pkt);
+extern void portscan(char*, struct pcap_pkthdr*, u_char *pkt);
 /*
 */
 void register_plugin()
@@ -113,7 +113,7 @@ void register_plugin()
 	pluginlist = (FunctionNode *)malloc(sizeof(FunctionNode));
 	pluginlist->next = NULL;
 	register_hook(dnseye);
- 	//register_hook(other plugin);
+ 	register_hook(portscan);
 }
 
 void register_hook(plugin_function *function)
