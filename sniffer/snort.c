@@ -16,28 +16,9 @@
 ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
-/******************************************************************************
- *
- * Program: Snort
- *
- * Purpose: This is a fairly generic sniffing program which does some nice
- *          logging.  You can tell it what the "home" network is and it will
- *          log all traffic in terms of the remote side of the connection.
- *          The program can take BPF-style filtering commands at the command
- *          line and filter out the packets it receives to just the network
- *          of interest.
- *
- * Author: Martin Roesch (mroesch@bbn.com) (roesch@clark.net)
- *
- * Last Modified: 12/21/98
- *
- * Comments: Ideas and code stolen liberally from Mike Borella's IP Grab program.
- *           Check out his stuff at http://www.xnet.com/~cathmike/MSB/
- *
- ******************************************************************************/
-
 /*  I N C L U D E S  **********************************************************/
 #include "snort.h"
+//#include "dnseye.h"
 #include "threadpool.h"
 
 /****************************************************************************
@@ -109,6 +90,7 @@ int main(int argc, char *argv[])
    /* set the packet processor (ethernet, slip or raw)*/
    SetPktProcessor();
 
+  register_plugin();
   /* Read all packets on the device.  Continue until cnt packets read */
   //if(pcap_loop(pd, pv.pkt_cnt, grinder, NULL) < 0)
   if(pcap_loop(pd, pv.pkt_cnt, snort_hook, NULL) < 0)
@@ -123,23 +105,35 @@ int main(int argc, char *argv[])
   return 0;
 }
 
+extern void dnseye(char*, struct pcap_pkthdr*, u_char *pkt);
+/*
+*/
+void register_plugin()
+{
+	pluginlist = (FunctionNode *)malloc(sizeof(FunctionNode));
+	pluginlist->next = NULL;
+	register_hook(dnseye);
+ 	//register_hook(other plugin);
+}
 
-/****************************************************************************
- *
- * Function: snort_hook()
- *
- * Purpose: hook snort for capturing packet  
- *
- * Arguments: user => I don't know what this is for, I don't use it but it has 
- *                    to be there
- *            pkthdr => ptr to the packet header
- *            pkt => pointer to the real live packet data
- *
- * Returns: void function
- *
- ****************************************************************************/
+void register_hook(plugin_function *function)
+{
+	FunctionNode *new_plugin = (FunctionNode *)malloc(sizeof(FunctionNode));
+	new_plugin->pf = function;
+	new_plugin->next = pluginlist->next;
+	pluginlist->next = new_plugin;
+}
+
 void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
+	struct pcap_pkthdr *hdr_copy = (struct pcap_pkthdr*)malloc(sizeof(struct pcap_pkthdr));
+	u_char *pkt_copy = (u_char *)malloc(sizeof(u_char)*pkthdr->len);
+	memcpy(hdr_copy, pkthdr, sizeof(struct pcap_pkthdr));
+	memcpy(pkt_copy, pkt, pkthdr->len);
+	FunctionNode *p = pluginlist->next;
+	for(; p; p=p->next){
+		p->pf(user, hdr_copy, pkt_copy);	
+	}
 	grinder(user, pkthdr, pkt);
 }
 
@@ -462,7 +456,13 @@ void CleanExit()
  ****************************************************************************/
 int DisplayBanner()
 {
-   printf("\n-*> Snort! <*-\nVersion %s, By Martin Roesch (roesch@clark.net)\n", VERSION);
+   printf("\
+    _  __           _  \n\
+   (_)/ _| ___  ___| | \n\
+   | | |_ / _ \\/ _ \\ | \n\
+   | |  _|  __/  __/ | \n\
+   |_|_|  \\___|\\___|_| \n\
+                       \n");
    return 0;
 }
 

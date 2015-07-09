@@ -21,7 +21,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#define DEBUG 1
+//#define DEBUG 1
 /*  D E F I N E S  ************************************************************/
 
 #ifdef SOLARIS
@@ -285,6 +285,19 @@ int OpenLogFile();
 void SetFlow();
 
 /*  ADD by geeksword  ******************************************************/
+typedef void (*plugin_function)(char *, struct pcap_pkthdr *, u_char *);
+struct function_node{
+	//void (*pf)(char *, struct pcap_pkthdr *, u_char *);
+	plugin_function pf;
+	struct function_node *next;
+};
+typedef struct function_node FunctionNode;
+FunctionNode *pluginlist = NULL;
+
+void register_hook(plugin_function *);
+void unregister_hook(plugin_function *);
+void register_plugin();
+
 void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt);
 
 #endif  /* __SNORT_H__ */
