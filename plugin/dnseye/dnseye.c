@@ -69,10 +69,6 @@ void dnseye(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
    pkt_len = pkthdr->len;
    cap_len = pkthdr->caplen;
 
-#ifdef DEBUG
-   printf("Packet!\n");
-#endif
-
    /* do a little validation */
    if(cap_len < ETHERNET_HEADER_LEN)
    {
@@ -101,8 +97,6 @@ void dnseye(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
       default:
              return;
    }
-
-   return;
 }
 
 
@@ -130,10 +124,6 @@ void DecodeIP(u_char *pkt, int len)
 
    /* lay the IP struct over the raw data */
    iph = (IPHdr *) pkt;
-
-#ifdef DEBUG
-   printf("ip header starts at: %p\n", iph);
-#endif
 
    /* do a little validation */
    if(len < sizeof(IPHdr))
@@ -189,24 +179,61 @@ void DecodeIP(u_char *pkt, int len)
       switch(iph->ip_proto)
       {
          case IPPROTO_TCP:
-                      strncpy(pip.proto, "TCP", 3);
-                      DecodeTCP(pktidx, len-hlen);
-                      return;
-
+                strncpy(pip.proto, "TCP", 3);
+                DecodeTCP(pktidx, len-hlen);
+                return;
          case IPPROTO_UDP:
-                      strncpy(pip.proto, "UDP", 3);
-                      DecodeUDP(pktidx, len-hlen);
-                      return;
-
-         case IPPROTO_ICMP:
-                      strncpy(pip.proto, "ICMP", 4);
-                      DecodeICMP(pktidx, len-hlen);
-                      return;
-
+         	strncpy(pip.proto, "UDP", 3);
+                DecodeUDP(pktidx, len-hlen);
+                return;
          default: 
                 return;
 
       }
+   }
+}
+
+void DecodeUDP(u_char *pkt, int len)
+{
+   UDPHdr *udph;
+
+   udph = (UDPHdr *) pkt;
+#ifdef DEBUG
+   printf("UDP header starts at: %p\n", udph);
+#endif
+
+   pip.sport = ntohs(udph->uh_sport);
+   pip.dport = ntohs(udph->uh_dport);
+
+   pip.udp_len = ntohs(udph->uh_len);
+
+   if(pip.dport==53)
+   {
+   	pktidx = pktidx +8;
+   	//fprintf(stdout,"dns packet, dns pkt len=%d\n",len-8);
+   	//PrintNetData(stdout,(char *)pktidx, len-8);
+   	DecodeDNS(pktidx, len-8);
+   }
+   SetFlow();
+
+   if(pv.verbose_flag)
+   {
+      PrintIPPkt(stdout, IPPROTO_UDP);
+
+      if(pv.data_flag)
+         PrintNetData(stdout, (char *) pkt + 8, len-8);
+   }
+
+   if(pv.log_flag)
+   {
+      OpenLogFile();
+
+      PrintIPPkt(log_ptr, IPPROTO_UDP);
+
+      if(pv.data_flag)
+         PrintNetData(log_ptr, (char *) pkt + 8, len-8);
+
+      fclose(log_ptr);
    }
 }
 
@@ -385,8 +412,7 @@ void RecordDomainName(u_long saddr, char *dname)
 
 void DecodeDNS(u_char *pkt, int len)
 {
-	//DNSHdr *dnsh;
-	//dnsh = (DNSHdr *)pkt;
+	printf("[+dnseye] enter DecodeDNS()\n");
 	u_int qlen,cnt;
 	qlen = len - 12;
 	u_char *quest;
@@ -406,9 +432,9 @@ void DecodeDNS(u_char *pkt, int len)
 		dname[i++]='.';
 	}
 	dname[i-1]='\0';
-	//fprintf(stdout,"Src ip:%s\tURL: %s\n",pip.saddr,dname);
+	fprintf(stdout,"Src ip:%s\tURL: %s\n",pip.saddr,dname);
 	RecordDomainName(inet_addr(pip.saddr),dname);
-	if((++pcnt)==100)
+	if((++pcnt) > PCNT_THRESHOLD)
 	{//print once every 100 requests
 		printf("|----------------------------|\n");
 		PrintDNlist(2);
@@ -416,93 +442,7 @@ void DecodeDNS(u_char *pkt, int len)
 	}
 }
 
-void DecodeUDP(u_char *pkt, int len)
-{
-   UDPHdr *udph;
 
-   udph = (UDPHdr *) pkt;
-#ifdef DEBUG
-   printf("UDP header starts at: %p\n", udph);
-#endif
-
-   pip.sport = ntohs(udph->uh_sport);
-   pip.dport = ntohs(udph->uh_dport);
-
-   pip.udp_len = ntohs(udph->uh_len);
-
-   if(pip.dport==53)
-   {
-   	pktidx = pktidx +8;
-   	//fprintf(stdout,"dns packet, dns pkt len=%d\n",len-8);
-   	//PrintNetData(stdout,(char *)pktidx, len-8);
-   	DecodeDNS(pktidx, len-8);
-   }
-   SetFlow();
-
-   if(pv.verbose_flag)
-   {
-      PrintIPPkt(stdout, IPPROTO_UDP);
-
-      if(pv.data_flag)
-         PrintNetData(stdout, (char *) pkt + 8, len-8);
-   }
-
-   if(pv.log_flag)
-   {
-      OpenLogFile();
-
-      PrintIPPkt(log_ptr, IPPROTO_UDP);
-
-      if(pv.data_flag)
-         PrintNetData(log_ptr, (char *) pkt + 8, len-8);
-
-      fclose(log_ptr);
-   }
-}
-
-
-void PrintNetData(FILE *fp, char *start, int len)
-{
-   char *end;
-   char hexbuf[STD_BUF];
-   char charbuf[STD_BUF];
-   int col;
-   int i;
-
-
-   end = start + len;
-
-   do
-   {
-      col = 0;
-      bzero(hexbuf,STD_BUF);
-      bzero(charbuf,STD_BUF);
-
-      for(i=0;i<16;i++)
-      {
-         if(start < end)
-         {
-            sprintf(hexbuf+(i*3),"%.2X ",start[0] & 0xFF);
-
-            if(*start > 0x1F && *start < 0x7E)
-            {
-               sprintf(charbuf+i+col,"%c",start[0]);
-            }
-            else
-            {
-               sprintf(charbuf+i+col, ".");
-            }
-            start++;
-         }
-      }
-
-      fprintf(fp,"     %-48s %s\n",hexbuf,charbuf);
-      fflush(fp);
-
-   }while(start < end);
-
-   return;
-}
 
 void GetTime(char *timebuf)
 {
@@ -515,178 +455,4 @@ void GetTime(char *timebuf)
    timebuf = NULL;
 }
 
-
-
-/*----------------------------------------------------------------------------
- *
- * copy_argv()
- *
- * Copy arg vector into a new buffer, concatenating arguments with spaces.
- * Lifted from tcpdump.
- *
- *----------------------------------------------------------------------------
- */
-
-char *copy_argv(char **argv)
-{
-  char **p;
-  u_int len = 0;
-  char *buf;
-  char *src, *dst;
-  void ftlerr(char *, ...);
-
-  p = argv;
-  if (*p == 0) return 0;
-
-  while (*p)
-    len += strlen(*p++) + 1;
-
-  buf = (char *) malloc (len);
-  if(buf == NULL)
-  {
-     fprintf(stderr, "malloc() failed: %s\n", strerror(errno));
-     exit(0);
-  }
-  p = argv;
-  dst = buf;
-  while ((src = *p++) != NULL)
-    {
-      while ((*dst++ = *src++) != '\0');
-      dst[-1] = ' ';
-    }
-  dst[-1] = '\0';
-
-  return buf;
-}
-
-
-
-void SetFlow()
-{
-   u_long testaddr1;
-   u_long testaddr2;
-   struct in_addr sin;
-   struct in_addr din;
-
-   if(((sin.s_addr = inet_addr(pip.saddr)) == -1)||
-      ((din.s_addr = inet_addr(pip.daddr)) == -1))
-   {
-      //fprintf(stderr,"ERROR: SetFlow() problem doing address conversion\n");
-      //fprintf(stderr,"error sip=%s, dip=%s\n",pip.saddr,pip.daddr);
-     // CleanExit();
-   }
-   else
-   {
-      testaddr1 = ((u_long)sin.s_addr & NETMASK);
-      testaddr2 = ((u_long)din.s_addr & NETMASK);
-
-      if(testaddr1 == testaddr2)
-      {
-         if(sin.s_addr <= din.s_addr)
-            flow = RIGHT;
-         else
-            flow = LEFT;
-
-         return;
-      }
-
-
-#ifdef DEBUG
-      printf("source address = %lX  homenet = %lX\n", testaddr1, pv.homenet);
-#endif
-
-      if(testaddr1 == pv.homenet)
-      {
-         if(testaddr2 != pv.homenet)
-            flow = LEFT;
-         else
-            flow = RIGHT; 
-      }
-      else
-      {
-         flow = RIGHT;
-      }
-   }
-}
-
-
-
-
-
-int OpenLogFile()
-{
-   char log_path[STD_BUF];
-   char log_file[STD_BUF];
-   char timebuf[STD_BUF];
-   char proto[5];
-
-
-   bzero(log_path, STD_BUF);
-   bzero(log_file, STD_BUF);
-   bzero(timebuf, STD_BUF);
-   bzero(proto, 5);
-
-   if(flow == LEFT)
-   {
-      sprintf(log_path, "%s/%s", pv.log_dir, pip.daddr);
-   }
-   else
-   {
-      sprintf(log_path, "%s/%s", pv.log_dir, pip.saddr);
-   }   
-
-#ifdef DEBUG
-   fprintf(stderr, "Creating directory: %s\n",log_path);
-#endif
-
-   if(mkdir(log_path,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH))
-   {
-#ifdef DEBUG
-      if(errno != EEXIST)
-      {
-         printf("Problem creating directory %s\n",log_path);
-      }
-#endif
-   }
-
-#ifdef DEBUG
-   printf("Directory Created!\n");
-#endif
-
-   if((!strcasecmp(pip.proto, "TCP"))||
-      (!strcasecmp(pip.proto, "UDP")))
-   {
-      if(pip.sport >= pip.dport)
-      {
-         sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto, pip.sport, 
-                 pip.dport);
-      }
-      else
-      {
-         sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto, pip.dport, 
-                 pip.sport);
-      }
-   }
-   else
-   {
-      sprintf(log_file, "%s/%s", log_path, pip.proto);
-   }   
-
-#ifdef DEBUG
-   printf("Opening file: %s\n", log_file);
-#endif
-
-   if((log_ptr = fopen(log_file, "a")) == NULL)
-   {
-       fprintf(stderr, "ERROR: OpenLogFile() => fopen() log file: %s\n", 
-               strerror(errno));
-       exit(1);
-   }
-
-#ifdef DEBUG
-   printf("File opened...\n");
-#endif
-
-   return 0;
-}
 

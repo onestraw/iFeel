@@ -1,6 +1,7 @@
 CFLAGS = -I../sniffer -D_REENTRANT -Wall -pedantic -Isrc
 LDLIBS = -lpcap
 
+DEBUG = 1
 ifdef DEBUG
 CFLAGS += -g
 LDFLAGS += -g
