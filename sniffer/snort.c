@@ -110,31 +110,42 @@ extern void portscan(char*, struct pcap_pkthdr*, u_char *pkt);
 */
 void register_plugin()
 {
-	pluginlist = (FunctionNode *)malloc(sizeof(FunctionNode));
-	pluginlist->next = NULL;
 	register_hook(dnseye);
- 	register_hook(portscan);
+ 	//register_hook(portscan);
 }
 
 void register_hook(plugin_function *function)
 {
 	FunctionNode *new_plugin = (FunctionNode *)malloc(sizeof(FunctionNode));
+	if(!new_plugin){
+		fprintf(stderr, "malloc FunctionNode error\n");
+		exit(1);
+	}
 	new_plugin->pf = function;
-	new_plugin->next = pluginlist->next;
-	pluginlist->next = new_plugin;
+	if(pluginlist){
+		new_plugin->next = pluginlist->next;
+		pluginlist->next = new_plugin;
+	}
+	else{
+		new_plugin->next = NULL;
+		pluginlist = new_plugin;
+	}
 }
 
 void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
-	struct pcap_pkthdr *hdr_copy = (struct pcap_pkthdr*)malloc(sizeof(struct pcap_pkthdr));
+	/*struct pcap_pkthdr *hdr_copy = (struct pcap_pkthdr*)malloc(sizeof(struct pcap_pkthdr));
 	u_char *pkt_copy = (u_char *)malloc(sizeof(u_char)*pkthdr->len);
 	memcpy(hdr_copy, pkthdr, sizeof(struct pcap_pkthdr));
 	memcpy(pkt_copy, pkt, pkthdr->len);
-	FunctionNode *p = pluginlist->next;
-	for(; p; p=p->next){
-		p->pf(user, hdr_copy, pkt_copy);	
+	*/
+	
+	FunctionNode *p;
+	for(p=pluginlist; p; p=p->next){
+		p->pf(user, pkthdr, pkt);	
 	}
-	grinder(user, pkthdr, pkt);
+	//grinder(user, pkthdr, pkt);
+        //DecodeEthPkt(user, pkthdr, pkt);
 }
 
 /****************************************************************************
