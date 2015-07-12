@@ -20,6 +20,16 @@
 #include "snort.h"
 #include "threadpool.h"
 
+static void DecodeEthPkt(char *, struct pcap_pkthdr *, u_char *);
+static void DecodeSlipPkt(char *, struct pcap_pkthdr *, u_char *);
+static void DecodeRawPkt(char *, struct pcap_pkthdr *, u_char *);
+static void DecodeIP(u_char *, int);
+static void DecodeARP(u_char *, int, int);
+static void DecodeIPX(u_char *, int);
+static void DecodeTCP(u_char *, int);
+static void DecodeUDP(u_char *, int);
+static void DecodeICMP(u_char *, int);
+
 /****************************************************************************
  *
  * Function: main(int, char *)
@@ -111,7 +121,7 @@ extern void portscan(char*, struct pcap_pkthdr*, u_char *pkt);
 void register_plugin()
 {
 	register_hook(dnseye);
- 	//register_hook(portscan);
+ 	register_hook(portscan);
 }
 
 void register_hook(plugin_function *function)
@@ -145,7 +155,7 @@ void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 		p->pf(user, pkthdr, pkt);	
 	}
 	//grinder(user, pkthdr, pkt);
-        //DecodeEthPkt(user, pkthdr, pkt);
+        DecodeEthPkt(user, pkthdr, pkt);
 }
 
 /****************************************************************************
@@ -493,6 +503,7 @@ int DisplayBanner()
  * Returns: void function
  *
  ****************************************************************************/
+
 void DecodeEthPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
    int pkt_len;  /* suprisingly, the length of the packet */
@@ -569,6 +580,7 @@ void DecodeEthPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
  * Returns: void function
  *
  ****************************************************************************/
+
 void DecodeSlipPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
 }
@@ -589,6 +601,7 @@ void DecodeSlipPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
  * Returns: void function
  *
  ****************************************************************************/
+
 void DecodeRawPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
 }
@@ -607,6 +620,7 @@ void DecodeRawPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
  * Returns: void function
  *
  ****************************************************************************/
+
 void DecodeIP(u_char *pkt, int len)
 {
    IPHdr *iph;   /* ip header ptr */
@@ -713,6 +727,7 @@ void DecodeIP(u_char *pkt, int len)
  * Returns: void function
  *
  ****************************************************************************/
+
 void DecodeTCP(u_char *pkt, int len)
 {
    TCPHdr *tcph;  /* TCP packet header ptr */
@@ -763,6 +778,7 @@ void DecodeTCP(u_char *pkt, int len)
 }   
 
 
+
 void DecodeUDP(u_char *pkt, int len)
 {
    UDPHdr *udph;
@@ -800,6 +816,7 @@ void DecodeUDP(u_char *pkt, int len)
       fclose(log_ptr);
    }
 }
+
 
 
 
@@ -1089,6 +1106,7 @@ void PrintNetData(FILE *fp, char *start, int len)
 
 
 
+
 void DecodeARP(u_char *pkt, int len, int caplen)
 {
    EtherARP *arph;
@@ -1142,6 +1160,7 @@ void DecodeARP(u_char *pkt, int len, int caplen)
 
    return;
 }
+
 
 
 void DecodeIPX(u_char *pkt, int len)

@@ -17,6 +17,9 @@
 */
 
 #include"dnseye.h"
+void DecodeIP(u_char *, int);
+void DecodeUDP(u_char *, int);
+
 /****************************************************************************
  *
  * Function: CleanExit()
@@ -180,7 +183,7 @@ void DecodeIP(u_char *pkt, int len)
       {
          case IPPROTO_TCP:
                 strncpy(pip.proto, "TCP", 3);
-                DecodeTCP(pktidx, len-hlen);
+                //DecodeTCP(pktidx, len-hlen);
                 return;
          case IPPROTO_UDP:
          	strncpy(pip.proto, "UDP", 3);
@@ -412,7 +415,6 @@ void RecordDomainName(u_long saddr, char *dname)
 
 void DecodeDNS(u_char *pkt, int len)
 {
-	printf("[+dnseye] enter DecodeDNS()\n");
 	u_int qlen,cnt;
 	qlen = len - 12;
 	u_char *quest;
@@ -433,6 +435,7 @@ void DecodeDNS(u_char *pkt, int len)
 	}
 	dname[i-1]='\0';
 	fprintf(stdout,"Src ip:%s\tURL: %s\n",pip.saddr,dname);
+	/*
 	RecordDomainName(inet_addr(pip.saddr),dname);
 	if((++pcnt) > PCNT_THRESHOLD)
 	{//print once every 100 requests
@@ -440,6 +443,7 @@ void DecodeDNS(u_char *pkt, int len)
 		PrintDNlist(2);
 		pcnt = 0;
 	}
+	*/
 }
 
 
