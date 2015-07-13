@@ -17,37 +17,18 @@ void get_if_ip()
 	g_my_addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
 }
 
-
 void init_portscan()
 {
-	u_int pktlen = 0, i, netfd;
-	u_char *pkt;
-	char hostname[32];
-	struct hostent *hp;
-	time_t t;
-
 	openlog("portscan", 0, LOG_DAEMON);
 
-#ifdef DEBUG
-	if (gethostname(hostname, sizeof(hostname)) < 0) {
-		perror("gethostname()");
-		exit(-1);
-	}
-	if ((hp = gethostbyname(hostname)) == NULL) {
-		fprintf(stderr, "Cannot find local address\n");
-		exit(-1);
-	}
-	memcpy((char *)&g_my_addr, hp->h_addr, hp->h_length);
-	printf("[+ portscan] my_addr: %s\n",hp->h_addr);
-	printf("[+ portscan] my_addr: %s\n",hp->h_name);
-#endif
 	get_if_ip();
 	//g_my_addr = inet_addr("124.16.77.185");
 	buildnet();
-
+/*
+	u_int  netfd;
 	if ((netfd = initdevice(O_RDWR, 0)) < 0)
 		exit(-1);
-}
+*/ }
 
 void portscan(char *user, struct pcap_pkthdr *pkthdr, u_char * pkt)
 {
@@ -207,7 +188,7 @@ u_int pktlen;
 	ep = (struct ethhdr *)pkt;
 	if (ntohs(ep->h_proto) != ETH_P_IP) {
 #ifdef DEBUG
-		printf("[+ portscan] ep->h_proto != ETH_P_IP\n");
+//              printf("[+ portscan] ep->h_proto != ETH_P_IP\n");
 #endif
 		return;
 	}
@@ -218,9 +199,12 @@ u_int pktlen;
 	g_saddr = ip->saddr;
 	g_daddr = ip->daddr;
 
-	if ((g_pdaddr = doicare(g_daddr)) == NULL)
+	if ((g_pdaddr = doicare(g_daddr)) == NULL) {
+#ifdef DEBUG
+		printf("[+ portscan] do not care: %s\n", ip_itos(g_daddr));
+#endif
 		return;
-
+	}
 	off = ntohs(ip->frag_off);
 	g_isfrag = (off & IP_MF);	/* Set if packet is fragmented */
 	g_iplen = ntohs(ip->tot_len);
@@ -268,7 +252,7 @@ u_char *pkt;
 	flags = thdr->syn << 2 + thdr->fin << 1 + thdr->ack;
 	addtcp(sport, dport, flags, ep->h_source);
 #ifdef DEBUG
-	printf("[+ portscan] sport,dport=(%d,%d)\n",sport,dport);
+//      printf("[+ portscan] sport,dport=(%d,%d)\n",sport,dport);
 #endif
 }
 
@@ -279,6 +263,9 @@ Purpose:  create a new dportNode and add it to saddrNode.
 **********************************************************************/
 void createPortNode(struct saddrNode *psa, u_short sport, u_short dport)
 {
+#ifdef DEBUG
+	//printf("[+ portscan] enter createPortNode()\n");
+#endif
 	struct dportNode *pdp;
 	if ((pdp =
 	     (struct dportNode *)malloc(sizeof(struct dportNode))) == NULL) {
@@ -303,7 +290,7 @@ u_char flags;
 u_char *eaddr;
 {
 #ifdef DEBUG
-	printf("[+ portscan] enter addtcp()\n");
+	//printf("[+ portscan] enter addtcp()\n");
 #endif
 	struct saddrNode *pi;
 	struct dportNode *pdp;
@@ -375,7 +362,7 @@ u_short dport;
 u_char *eaddr;
 {
 #ifdef DEBUG
-	printf("[+ portscan] enter addudp()\n");
+	//printf("[+ portscan] enter addudp()\n");
 #endif
 	struct saddrNode *pi;
 	struct dportNode *pdp;
@@ -462,24 +449,29 @@ void print_info()
 	if (Greportlevel == REPORTALL || Greportlevel == REPORTSCAN) {
 
 		for (si = g_pdaddr->tcp; si; si = si->next) {
-			if ((si->diff_dport_cnt - si->high_freq_sport_cnt >
-			     g_portlimit)
+#ifdef DEBUG
+			printf
+			    ("[+ portscan] diff_dport_cnt, high_freq_sport_cnt=(%d, %d)\n",
+			     si->diff_dport_cnt, si->high_freq_sport_cnt);
+#endif
+			if ((si->diff_dport_cnt >
+			     si->high_freq_sport_cnt + g_portlimit)
 			    || si->high_freq_sport_cnt > g_hfreq_portlimit) {
 				sprintf(buf,
-					"Possible TCP port scan from %s (%lu ports) against %s\n",
-					ip_itos(si->saddr), si->diff_dport_cnt,
-					abuf);
+					"Possible TCP port scan from %s against %s (%lu ports)\n",
+					ip_itos(si->saddr), abuf,
+					si->diff_dport_cnt);
 				LOG(buf);
 			}
 		}
 		for (si = g_pdaddr->udp; si; si = si->next) {
-			if ((si->diff_dport_cnt - si->high_freq_sport_cnt >
-			     g_portlimit)
+			if ((si->diff_dport_cnt >
+			     si->high_freq_sport_cnt + g_portlimit)
 			    || si->high_freq_sport_cnt > g_hfreq_portlimit) {
 				sprintf(buf,
-					"Possible UDP port scan from %s (%lu ports) against %s\n",
-					ip_itos(si->saddr), si->diff_dport_cnt,
-					abuf);
+					"Possible UDP port scan from %s against %s(%lu ports)\n",
+					ip_itos(si->saddr), abuf,
+					si->diff_dport_cnt);
 				LOG(buf);
 			}
 		}

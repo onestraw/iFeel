@@ -2,7 +2,7 @@
 #define PORTSCAN_H
 
 #include"snort.h"
-#define DEBUG 1
+//#define DEBUG 1
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,9 +77,10 @@ time_t g_timer = 5, g_timein;
 
 int g_portlimit = 7;
 int g_hfreq_portlimit = 40;
-//int Gsynflood = 8;
-//int Gicmplimit = 5;
-int Gwatchlevel = MYSELFONLY;
+int Gsynflood = 8;
+int Gicmplimit = 5;
+//int Gwatchlevel = MYSELFONLY;
+int Gwatchlevel = HUMANITARIAN;
 int Greportlevel = REPORTALL;
 char *gProgramName;
 char *gDev = "eth0";
@@ -102,6 +103,6 @@ void do_args(), usage(), addfloodinfo(), rmfloodinfo();
 struct daddrNode *doicare(), *addtarget();
 char *ip_itos();
 u_char *readdevice();
-void portscan(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt);
+void portscan(char *user, struct pcap_pkthdr *pkthdr, u_char * pkt);
 
 #endif
