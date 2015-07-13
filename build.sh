@@ -6,12 +6,8 @@ _help()
 }
 _make()
 {
-	#generate theadpool dynamic link library
-	cd threadpool
-	make
-	
 	#build plugins
-	cd ../plugin
+	cd ./plugin
 	make
 	
 	cd  ..
@@ -19,10 +15,7 @@ _make()
 }
 _clean()
 {
-	cd threadpool
-	make clean
-
-	cd ../plugin
+	cd ./plugin
 	make clean
 
 	cd ..

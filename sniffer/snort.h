@@ -22,6 +22,7 @@
 #include <signal.h>
 
 //#define DEBUG 1
+#define THREAD_SUPPORT 1
 /*  D E F I N E S  ************************************************************/
 
 #ifdef SOLARIS
@@ -273,20 +274,36 @@ void PrintIPPkt(FILE *, int);
 void PrintNetData(FILE *, char *, int);
 char *copy_argv(char **);
 int OpenLogFile();
-void SetFlow();
 
 /*  ADD by geeksword  ******************************************************/
+struct plugin_function_params{
+	char *user;
+	struct pcap_pkthdr *pkthdr;
+	u_char *pkt;
+};
 typedef void (*plugin_function)(char *, struct pcap_pkthdr *, u_char *);
+typedef void (*plugin_function_thread)(struct plugin_function_params*);
 struct function_node{
 	//void (*pf)(char *, struct pcap_pkthdr *, u_char *);
+#if !defined(THREAD_SUPPORT)
 	plugin_function pf;
+#else
+	plugin_function_thread pf;
+#endif
 	struct function_node *next;
 };
+
 typedef struct function_node FunctionNode;
 FunctionNode *pluginlist = NULL;
 
+#if !defined(THREAD_SUPPORT)
 void register_hook(plugin_function *);
 void unregister_hook(plugin_function *);
+#else
+void register_hook(plugin_function_thread *);
+void unregister_hook(plugin_function_thread *);
+#endif
+
 void register_plugin();
 
 void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt);

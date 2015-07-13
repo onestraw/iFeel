@@ -27,7 +27,7 @@
 #include <syslog.h>
 #include <linux/sockios.h>
 
-#define LOG(info)	syslog(LOG_ALERT, "%s\n", info);fprintf(stdout,"%s\n",info)
+#define LOG(info)	syslog(LOG_ALERT, "%s\n", info);fprintf(stdout,"%s",info)
 
 #define PKTLEN 96		/* Should be enough for what we want */
 #ifndef IP_MF

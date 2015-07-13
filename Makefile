@@ -41,8 +41,9 @@ MY_CFLAGS =  -export-dynamic -g \
 
 # The linker options.
 MY_LIBS   =  -lpcap \
-	-L./threadpool -Wl,-rpath=./threadpool -lthreadpool \
+	-lpthread \
 	-L./plugin/lib -Wl,-rpath=./plugin/lib -ldnseye -lportscan \
+	#-L./threadpool -Wl,-rpath=./threadpool -lthreadpool \
 
 # The pre-processor options used by the cpp (man cpp for more).
 CPPFLAGS  = -Wall

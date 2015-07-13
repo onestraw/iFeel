@@ -18,7 +18,9 @@
 
 /*  I N C L U D E S  **********************************************************/
 #include "snort.h"
-#include "threadpool.h"
+#include <pthread.h>
+
+#define THREAD_NUM	5
 
 static void DecodeEthPkt(char *, struct pcap_pkthdr *, u_char *);
 static void DecodeSlipPkt(char *, struct pcap_pkthdr *, u_char *);
@@ -29,6 +31,7 @@ static void DecodeIPX(u_char *, int);
 static void DecodeTCP(u_char *, int);
 static void DecodeUDP(u_char *, int);
 static void DecodeICMP(u_char *, int);
+void SetFlow();
 
 /****************************************************************************
  *
@@ -53,109 +56,136 @@ static void DecodeICMP(u_char *, int);
  ****************************************************************************/
 int main(int argc, char *argv[])
 {
-   /* grab a few signals to make sure we a good about cleaning up */
-   signal(SIGKILL, CleanExit);
-   signal(SIGTERM, CleanExit);
-   signal(SIGINT, CleanExit);
-   signal(SIGQUIT, CleanExit);
-   signal(SIGHUP, CleanExit);
+	/* grab a few signals to make sure we a good about cleaning up */
+	signal(SIGKILL, CleanExit);
+	signal(SIGTERM, CleanExit);
+	signal(SIGINT, CleanExit);
+	signal(SIGQUIT, CleanExit);
+	signal(SIGHUP, CleanExit);
 
-   /* set a global ptr to the program name so other functions can tell
-      what the program name is */
-   progname = argv[0];
+	/* set a global ptr to the program name so other functions can tell
+	   what the program name is */
+	progname = argv[0];
 
-   if(getuid())
-   {
-      fprintf(stderr, "Sorry Pard'ner, you gotta be at least this tall to ride this pony.\n");
-      fprintf(stderr, "--->root\n");
-      fprintf(stderr, "|\n");
-      fprintf(stderr, "|\n");
-      fprintf(stderr, "|\n");
-      fprintf(stderr, "|\n");
-      fprintf(stderr, "|\n");
-      CleanExit();
-   } 
-   /* Tell 'em who wrote it, and what "it" is */
-   DisplayBanner();
+	if (getuid()) {
+		fprintf(stderr,
+			"Sorry Pard'ner, you gotta be at least this tall to ride this pony.\n");
+		fprintf(stderr, "--->root\n");
+		fprintf(stderr, "|\n");
+		fprintf(stderr, "|\n");
+		fprintf(stderr, "|\n");
+		fprintf(stderr, "|\n");
+		fprintf(stderr, "|\n");
+		CleanExit();
+	}
+	/* Tell 'em who wrote it, and what "it" is */
+	DisplayBanner();
 
-   /* initialize the packet counter to loop forever */
-   pv.pkt_cnt = -1;
+	/* initialize the packet counter to loop forever */
+	pv.pkt_cnt = -1;
 
-   /* chew up the command line */
-   ParseCmdLine(argc, argv);
+	/* chew up the command line */
+	ParseCmdLine(argc, argv);
 
-   /* if no interface has been indicated, set the default to eth0 (my Linux
-      bias is showing thru */
-   if(pv.interface == NULL)
-   {
-      pv.interface = (u_char *) malloc((sizeof(char) * strlen(DEFAULT_INTF)));
-      bzero(pv.interface, strlen(DEFAULT_INTF));
-      strncpy(pv.interface, DEFAULT_INTF, strlen(DEFAULT_INTF));
-   }
+	/* if no interface has been indicated, set the default to eth0 (my Linux
+	   bias is showing thru */
+	if (pv.interface == NULL) {
+		pv.interface =
+		    (u_char *) malloc((sizeof(char) * strlen(DEFAULT_INTF)));
+		bzero(pv.interface, strlen(DEFAULT_INTF));
+		strncpy(pv.interface, DEFAULT_INTF, strlen(DEFAULT_INTF));
+	}
 
-   /* open up our libpcap packet capture interface */
-   OpenPcap(pv.interface);
+	/* open up our libpcap packet capture interface */
+	OpenPcap(pv.interface);
 
-   /* set the packet processor (ethernet, slip or raw)*/
-   SetPktProcessor();
 
-  register_plugin();
-  /* Read all packets on the device.  Continue until cnt packets read */
-  //if(pcap_loop(pd, pv.pkt_cnt, grinder, NULL) < 0)
-  if(pcap_loop(pd, pv.pkt_cnt, snort_hook, NULL) < 0)
-  {
-     fprintf(stderr, "pcap_loop: %s", pcap_geterr(pd));
-     CleanExit();
-  }
+	register_plugin();
 
-  /* close the capture interface */
-  pcap_close(pd);
+	/* Read all packets on the device.  Continue until cnt packets read */
+	//if(pcap_loop(pd, pv.pkt_cnt, grinder, NULL) < 0)
+	if (pcap_loop(pd, pv.pkt_cnt, snort_hook, NULL) < 0) {
+		fprintf(stderr, "pcap_loop: %s", pcap_geterr(pd));
+		CleanExit();
+	}
 
-  return 0;
+	/* close the capture interface */
+	pcap_close(pd);
+	return 0;
 }
 
-extern void dnseye(char*, struct pcap_pkthdr*, u_char *pkt);
-extern void portscan(char*, struct pcap_pkthdr*, u_char *pkt);
-/*
-*/
+extern void dnseye(char *, struct pcap_pkthdr *, u_char * pkt);
+extern void portscan(char *, struct pcap_pkthdr *, u_char * pkt);
+
+static void _snort(struct plugin_function_params* p){
+	DecodeEthPkt(p->user, p->pkthdr, p->pkt);
+}
+static void _dnseye(struct plugin_function_params* p){
+	dnseye(p->user, p->pkthdr, p->pkt);
+}
+static void _portscan(struct plugin_function_params* p){
+	portscan(p->user, p->pkthdr, p->pkt);
+}
+
 void register_plugin()
 {
+#if !defined(THREAD_SUPPORT)
+	register_hook(DecodeEthPkt);
 	register_hook(dnseye);
- 	register_hook(portscan);
+	register_hook(portscan);
+#else
+	register_hook(_snort);
+	register_hook(_dnseye);
+	register_hook(_portscan);
+#endif
 }
 
-void register_hook(plugin_function *function)
+#if !defined(THREAD_SUPPORT)
+void register_hook(plugin_function * function)
+#else
+void register_hook(plugin_function_thread * function)
+#endif
 {
-	FunctionNode *new_plugin = (FunctionNode *)malloc(sizeof(FunctionNode));
-	if(!new_plugin){
+	FunctionNode *new_plugin =
+	    (FunctionNode *) malloc(sizeof(FunctionNode));
+	if (!new_plugin) {
 		fprintf(stderr, "malloc FunctionNode error\n");
 		exit(1);
 	}
 	new_plugin->pf = function;
-	if(pluginlist){
+	if (pluginlist) {
 		new_plugin->next = pluginlist->next;
 		pluginlist->next = new_plugin;
-	}
-	else{
+	} else {
 		new_plugin->next = NULL;
 		pluginlist = new_plugin;
 	}
 }
 
-void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
+void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char * pkt)
 {
 	/*struct pcap_pkthdr *hdr_copy = (struct pcap_pkthdr*)malloc(sizeof(struct pcap_pkthdr));
-	u_char *pkt_copy = (u_char *)malloc(sizeof(u_char)*pkthdr->len);
-	memcpy(hdr_copy, pkthdr, sizeof(struct pcap_pkthdr));
-	memcpy(pkt_copy, pkt, pkthdr->len);
-	*/
-	
+	   u_char *pkt_copy = (u_char *)malloc(sizeof(u_char)*pkthdr->len);
+	   memcpy(hdr_copy, pkthdr, sizeof(struct pcap_pkthdr));
+	   memcpy(pkt_copy, pkt, pkthdr->len);
+	 */
 	FunctionNode *p;
-	for(p=pluginlist; p; p=p->next){
-		p->pf(user, pkthdr, pkt);	
+#if !defined(THREAD_SUPPORT)
+	for (p = pluginlist; p; p = p->next) {
+		p->pf(user, pkthdr, pkt);
 	}
-	//grinder(user, pkthdr, pkt);
-        DecodeEthPkt(user, pkthdr, pkt);
+#else
+	struct plugin_function_params params = {user, pkthdr, pkt};
+	pthread_t tid[THREAD_NUM];
+	int i =0;
+	for (p = pluginlist; p; p = p->next) {
+		pthread_create(&tid[i++], NULL, p->pf, &params);
+	}
+	while(i){
+		i--;
+		pthread_join(tid[i], NULL);
+	}
+#endif
 }
 
 /****************************************************************************
@@ -171,27 +201,25 @@ void snort_hook(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
  ****************************************************************************/
 int ShowUsage(char *progname)
 {
-   printf("\nUSAGE: %s [-options] <filter options>\n", progname);
-   printf("Options:\n");
-   printf("         -a         Display ARP packets\n");
-   printf("         -d         Dump the Application Layer\n");
-   printf("         -h <hn>    Home network = <hn>\n");
-   printf("         -i <if>    Listen on interface <if>\n");
-   printf("         -l <ld>    Log to directory <ld>\n");
-   printf("         -n <i>     Exit after receiving <cnt> packets\n");
-   printf("         -v         Be verbose\n");
-   printf("         -V         Show version number\n");
-   printf("         -?         Show this information\n");
-   printf("<Filter Options> are standard BPF options, as seen in TCPDump\n");
-   printf("\n");
+	printf("\nUSAGE: %s [-options] <filter options>\n", progname);
+	printf("Options:\n");
+	printf("         -a         Display ARP packets\n");
+	printf("         -d         Dump the Application Layer\n");
+	printf("         -h <hn>    Home network = <hn>\n");
+	printf("         -i <if>    Listen on interface <if>\n");
+	printf("         -l <ld>    Log to directory <ld>\n");
+	printf("         -n <i>     Exit after receiving <cnt> packets\n");
+	printf("         -v         Be verbose\n");
+	printf("         -V         Show version number\n");
+	printf("         -?         Show this information\n");
+	printf
+	    ("<Filter Options> are standard BPF options, as seen in TCPDump\n");
+	printf("\n");
 
-   fflush(stdout);
+	fflush(stdout);
 
-   return 0;
+	return 0;
 }
-
-
-
 
 /****************************************************************************
  *
@@ -207,163 +235,114 @@ int ShowUsage(char *progname)
  ****************************************************************************/
 int ParseCmdLine(int argc, char *argv[])
 {
-   char ch;                      /* storage var for getopt info */
-   extern char *optarg;          /* for getopt */
-   extern int optind;            /* for getopt */
-   struct in_addr net;           /* place to stick the local network data */
+	char ch;		/* storage var for getopt info */
+	extern char *optarg;	/* for getopt */
+	extern int optind;	/* for getopt */
+	struct in_addr net;	/* place to stick the local network data */
 
 #ifdef DEBUG
-   printf("Parsing command line...\n");
+	printf("Parsing command line...\n");
 #endif
 
-   /* loop through each command line var and process it */
-   while((ch = getopt(argc, argv, "h:l:dn:i:vV?a")) != EOF)
-   {
+	/* loop through each command line var and process it */
+	while ((ch = getopt(argc, argv, "h:l:dn:i:vV?a")) != EOF) {
 #ifdef DEBUG
-      printf("Processing cmd line switch: %c\n", ch);
+		printf("Processing cmd line switch: %c\n", ch);
 #endif
-      switch(ch)
-      {
-         case 'l': /* use log dir <X> */
-                 strncpy(pv.log_dir, optarg, STD_BUF-1);
+		switch (ch) {
+		case 'l':	/* use log dir <X> */
+			strncpy(pv.log_dir, optarg, STD_BUF - 1);
 #ifdef DEBUG
-                 printf("Log directory = %s\n", pv.log_dir);
+			printf("Log directory = %s\n", pv.log_dir);
 #endif
-                 pv.log_flag = 1;
-                 break;
+			pv.log_flag = 1;
+			break;
 
-         case 'a': /* show ARP packets */
+		case 'a':	/* show ARP packets */
 #ifdef DEBUG
-                 printf("Show ARP active\n");
+			printf("Show ARP active\n");
 #endif
-                 pv.showarp_flag = 1;
-                 
-                 break;
+			pv.showarp_flag = 1;
 
-         case 'd': /* dump the application layer data */
-                 pv.data_flag = 1;
+			break;
+
+		case 'd':	/* dump the application layer data */
+			pv.data_flag = 1;
 #ifdef DEBUG
-                 printf("Data Flag active\n");
+			printf("Data Flag active\n");
 #endif
-                 break;
+			break;
 
-         case 'v': /* be verbose */
-                 pv.verbose_flag = 1;
+		case 'v':	/* be verbose */
+			pv.verbose_flag = 1;
 #ifdef DEBUG
-                 printf("Verbose Flag active\n");
+			printf("Verbose Flag active\n");
 #endif
-                 break;
+			break;
 
-         case 'n': /* grab x packets and exit */
-                 pv.pkt_cnt = atoi(optarg);
+		case 'n':	/* grab x packets and exit */
+			pv.pkt_cnt = atoi(optarg);
 #ifdef DEBUG
-                 printf("Exiting after %d packets\n", pv.pkt_cnt);
+			printf("Exiting after %d packets\n", pv.pkt_cnt);
 #endif
-                 break;
+			break;
 
-
-         case 'i': /* listen on interface x */
-                 pv.interface = (u_char *) malloc(strlen(optarg));
-                 bzero(pv.interface, strlen(optarg));
-                 strncpy(pv.interface, optarg, strlen(optarg));
+		case 'i':	/* listen on interface x */
+			pv.interface = (u_char *) malloc(strlen(optarg));
+			bzero(pv.interface, strlen(optarg));
+			strncpy(pv.interface, optarg, strlen(optarg));
 #ifdef DEBUG
-                 printf("Interface = %s\n", pv.interface);
+			printf("Interface = %s\n", pv.interface);
 #endif
-                 break;
+			break;
 
-         case '?': /* show help and exit */
-                 ShowUsage(progname);
-                 exit(0);
+		case '?':	/* show help and exit */
+			ShowUsage(progname);
+			exit(0);
 
-         case 'V': /* prog ver already gets printed out, so we just exit */
-                 exit(0);
+		case 'V':	/* prog ver already gets printed out, so we just exit */
+			exit(0);
 
-         case 'h': /* set home network to x, this will help determine what to
-                      set logging diectories to */
-                 if((net.s_addr = inet_addr(optarg)) ==-1)
-                 {
-                    fprintf(stderr, "ERROR: Homenet (%s) didn't x-late, WTF?\n",
-                            optarg);
-                    exit(0);
-                 }
-                 else
-                 {
+		case 'h':	/* set home network to x, this will help determine what to
+				   set logging diectories to */
+			if ((net.s_addr = inet_addr(optarg)) == -1) {
+				fprintf(stderr,
+					"ERROR: Homenet (%s) didn't x-late, WTF?\n",
+					optarg);
+				exit(0);
+			} else {
 #ifdef DEBUG
-                    struct in_addr sin;
-                    printf("Net = %s (%lX)\n", inet_ntoa(net), net.s_addr);
+				struct in_addr sin;
+				printf("Net = %s (%lX)\n", inet_ntoa(net),
+				       net.s_addr);
 #endif
-                    /* we assume a class C network for the time being */
-                    pv.homenet = ((u_long)net.s_addr & NETMASK); 
+				/* we assume a class C network for the time being */
+				pv.homenet = ((u_long) net.s_addr & NETMASK);
 #ifdef DEBUG
-                    sin.s_addr = pv.homenet;
-                    printf("Homenet = %s (%lX)\n", inet_ntoa(sin), sin.s_addr);
+				sin.s_addr = pv.homenet;
+				printf("Homenet = %s (%lX)\n", inet_ntoa(sin),
+				       sin.s_addr);
 #endif
-                 }
+			}
 
-                 break;
-      }
-   }
+			break;
+		}
+	}
 
-   /* set the BPF rules string (thanks Mike!) */
-   pv.pcap_cmd = copy_argv(&argv[optind]);
+	/* set the BPF rules string (thanks Mike!) */
+	pv.pcap_cmd = copy_argv(&argv[optind]);
 
 #ifdef DEBUG
-   if(pv.pcap_cmd != NULL)
-   {
-      printf("pcap_cmd = %s\n", pv.pcap_cmd);
-   }
-   else
-   {
-      printf("pcap_cmd is NULL!\n");
-   }
+	if (pv.pcap_cmd != NULL) {
+		printf("pcap_cmd = %s\n", pv.pcap_cmd);
+	} else {
+		printf("pcap_cmd is NULL!\n");
+	}
 #endif
 
-   return 0;
+	return 0;
 }
 
-
-/****************************************************************************
- *
- * Function: SetPktProcessor()
- *
- * Purpose:  Set which packet processing function we're going to use based on 
- *           what type of datalink layer we're using
- *
- * Arguments: None.
- *
- * Returns: 0 => success
- *
- ****************************************************************************/
-int SetPktProcessor()
-{
-   switch(datalink)
-   {
-      case DLT_EN10MB:
-                printf("Decoding Ethernet on interface %s\n", pv.interface);
-                grinder = (pcap_handler) DecodeEthPkt;
-                break;
-
-      case DLT_SLIP:
-                printf("Decoding Slip on interface %s\n", pv.interface);
-                grinder = (pcap_handler) DecodeSlipPkt;
-                break;
-
-#ifdef DLT_RAW /* Not supported in some arch or older pcap versions */
-      case DLT_RAW:
-                printf("Decoding raw data on interface %s\n", pv.interface);
-                grinder = (pcap_handler) DecodeRawPkt;
-                break;
-#endif
-
-       default:
-                fprintf(stderr, "\n%s cannot handle data link type %d", 
-                        progname, datalink);
-                CleanExit();
-    }
- 
-   return 0;
-}
-   
 
 /****************************************************************************
  *
@@ -378,68 +357,67 @@ int SetPktProcessor()
  ****************************************************************************/
 int OpenPcap(char *intf)
 {
-   bpf_u_int32 localnet, netmask;    /* net addr holders */
-   struct bpf_program fcode;         /* Finite state machine holder */
-   char errorbuf[PCAP_ERRBUF_SIZE];  /* buffer to put error strings in */
- 
-   /* look up the device and get the handle */
-   if(pv.interface == NULL)
-   {
-      pv.interface = pcap_lookupdev(errorbuf);
+	bpf_u_int32 localnet, netmask;	/* net addr holders */
+	struct bpf_program fcode;	/* Finite state machine holder */
+	char errorbuf[PCAP_ERRBUF_SIZE];	/* buffer to put error strings in */
 
-      if(pv.interface == NULL)
-      {
-         fprintf(stderr, "ERROR: OpenPcap() device %s lookup: %s\n", 
-                 pv.interface, errorbuf);
-         CleanExit();
-      }
-   }
- 
-   /* get the device file descriptor */
-   pd = pcap_open_live(pv.interface, SNAPLEN, PROMISC, READ_TIMEOUT, errorbuf);
+	/* look up the device and get the handle */
+	if (pv.interface == NULL) {
+		pv.interface = pcap_lookupdev(errorbuf);
 
-   if (pd == NULL) 
-   {
-      fprintf(stderr, "ERROR: OpenPcap() device %s open: %s\n", 
-              pv.interface, errorbuf);
-      CleanExit();
-   }
- 
-   /* get local net and netmask */
-   if(pcap_lookupnet(pv.interface, &localnet, &netmask, errorbuf) < 0)
-   {
-      fprintf(stderr, "ERROR: OpenPcap() device %s network lookup: %s\n", 
-              pv.interface, errorbuf);
-      CleanExit();
-   }
-  
-   /* compile command line filter spec info fcode FSM */
-   if(pcap_compile(pd, &fcode, pv.pcap_cmd, 0, netmask) < 0)
-   {
-      fprintf(stderr, "ERROR: OpenPcap() FSM compilation failed: %s\n", 
-              pcap_geterr(pd));
-      CleanExit();
-   } 
-  
-   /* set the pcap filter */
-   if(pcap_setfilter(pd, &fcode) < 0)
-   {
-      fprintf(stderr, "ERROR: OpenPcap() setfilter: %s\n", pcap_geterr(pd));
-      CleanExit();
-   }
- 
-   /* get data link type */
-   datalink = pcap_datalink(pd);
+		if (pv.interface == NULL) {
+			fprintf(stderr,
+				"ERROR: OpenPcap() device %s lookup: %s\n",
+				pv.interface, errorbuf);
+			CleanExit();
+		}
+	}
 
-   if (datalink < 0) 
-   {
-      fprintf(stderr, "ERROR: OpenPcap() datalink grab: %s\n", pcap_geterr(pd));
-      CleanExit();
-   }
+	/* get the device file descriptor */
+	pd = pcap_open_live(pv.interface, SNAPLEN, PROMISC, READ_TIMEOUT,
+			    errorbuf);
 
-   return 0;
+	if (pd == NULL) {
+		fprintf(stderr, "ERROR: OpenPcap() device %s open: %s\n",
+			pv.interface, errorbuf);
+		CleanExit();
+	}
+
+	/* get local net and netmask */
+	if (pcap_lookupnet(pv.interface, &localnet, &netmask, errorbuf) < 0) {
+		fprintf(stderr,
+			"ERROR: OpenPcap() device %s network lookup: %s\n",
+			pv.interface, errorbuf);
+		CleanExit();
+	}
+
+	/* compile command line filter spec info fcode FSM */
+	if (pcap_compile(pd, &fcode, pv.pcap_cmd, 0, netmask) < 0) {
+		fprintf(stderr,
+			"ERROR: OpenPcap() FSM compilation failed: %s\n",
+			pcap_geterr(pd));
+		CleanExit();
+	}
+
+	/* set the pcap filter */
+	if (pcap_setfilter(pd, &fcode) < 0) {
+		fprintf(stderr, "ERROR: OpenPcap() setfilter: %s\n",
+			pcap_geterr(pd));
+		CleanExit();
+	}
+
+	/* get data link type */
+	datalink = pcap_datalink(pd);
+
+	if (datalink < 0) {
+		fprintf(stderr, "ERROR: OpenPcap() datalink grab: %s\n",
+			pcap_geterr(pd));
+		CleanExit();
+	}
+
+	return 0;
 }
- 
+
 /****************************************************************************
  *
  * Function: CleanExit()
@@ -453,16 +431,15 @@ int OpenPcap(char *intf)
  ****************************************************************************/
 void CleanExit()
 {
-   printf("Exiting...\n");
+	printf("Exiting...\n");
 
-   pcap_close(pd);
+	pcap_close(pd);
 
-   if(pv.log_flag)
-      fclose(log_ptr);
+	if (pv.log_flag)
+		fclose(log_ptr);
 
-   exit(0);
+	exit(0);
 }
-
 
 /****************************************************************************
  *
@@ -477,17 +454,15 @@ void CleanExit()
  ****************************************************************************/
 int DisplayBanner()
 {
-   printf("\
+	printf("\
     _  __           _  \n\
    (_)/ _| ___  ___| | \n\
    | | |_ / _ \\/ _ \\ | \n\
    | |  _|  __/  __/ | \n\
    |_|_|  \\___|\\___|_| \n\
                        \n");
-   return 0;
+	return 0;
 }
-
-
 
 /****************************************************************************
  *
@@ -504,109 +479,65 @@ int DisplayBanner()
  *
  ****************************************************************************/
 
-void DecodeEthPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
+void DecodeEthPkt(char *user, struct pcap_pkthdr *pkthdr, u_char * pkt)
 {
-   int pkt_len;  /* suprisingly, the length of the packet */
-   int cap_len;  /* caplen value */
-   int pkt_type; /* type of pkt (ARP, IP, etc) */
-   EtherHdr *eh; /* ethernet header pointer (thanks Mike!) */
+	int pkt_len;		/* suprisingly, the length of the packet */
+	int cap_len;		/* caplen value */
+	int pkt_type;		/* type of pkt (ARP, IP, etc) */
+	EtherHdr *eh;		/* ethernet header pointer (thanks Mike!) */
 
-   /* set the lengths we need */
-   pkt_len = pkthdr->len;
-   cap_len = pkthdr->caplen;
+	/* set the lengths we need */
+	pkt_len = pkthdr->len;
+	cap_len = pkthdr->caplen;
 
 #ifdef DEBUG
-   printf("Packet!\n");
+	printf("Packet!\n");
 #endif
 
-   /* do a little validation */
-   if(cap_len < ETHERNET_HEADER_LEN)
-   {
-      fprintf(stderr, "Ethernet header length < cap len! (%d bytes)\n", 
-              cap_len);
-      return;
-   }   
+	/* do a little validation */
+	if (cap_len < ETHERNET_HEADER_LEN) {
+		fprintf(stderr,
+			"Ethernet header length < cap len! (%d bytes)\n",
+			cap_len);
+		return;
+	}
 
-   /* lay the ethernet structure over the packet data */
-   eh = (EtherHdr *) pkt;
+	/* lay the ethernet structure over the packet data */
+	eh = (EtherHdr *) pkt;
 
-   /* grab out the network type */
-   pkt_type = ntohs(eh->ether_type);
+	/* grab out the network type */
+	pkt_type = ntohs(eh->ether_type);
 
-   /* set the packet index pointer */
-   pktidx = pkt;
+	/* set the packet index pointer */
+	pktidx = pkt;
 
-   /* increment the index pointer to the start of the network layer */
-   pktidx += ETHERNET_HEADER_LEN;
+	/* increment the index pointer to the start of the network layer */
+	pktidx += ETHERNET_HEADER_LEN;
 
-   switch(pkt_type)
-   {
-      case ETHERNET_TYPE_IP:
+	switch (pkt_type) {
+	case ETHERNET_TYPE_IP:
 #ifdef DEBUG
-                      printf("IP Packet\n");
+		printf("IP Packet\n");
 #endif
-                      DecodeIP(pktidx, pkt_len-ETHERNET_HEADER_LEN);
-                      return;
+		DecodeIP(pktidx, pkt_len - ETHERNET_HEADER_LEN);
+		return;
 
-      case ETHERNET_TYPE_ARP:
-      case ETHERNET_TYPE_REVARP:
-                      if(pv.showarp_flag)
-                         DecodeARP(pktidx, pkt_len-ETHERNET_HEADER_LEN, cap_len);
-                      return;
+	case ETHERNET_TYPE_ARP:
+	case ETHERNET_TYPE_REVARP:
+		if (pv.showarp_flag)
+			DecodeARP(pktidx, pkt_len - ETHERNET_HEADER_LEN,
+				  cap_len);
+		return;
 
-      case ETHERNET_TYPE_IPX:
-                      DecodeIPX(pktidx, (pkt_len-ETHERNET_HEADER_LEN));
-                      return;
-      default:
-             return;
-   }
+	case ETHERNET_TYPE_IPX:
+		DecodeIPX(pktidx, (pkt_len - ETHERNET_HEADER_LEN));
+		return;
+	default:
+		return;
+	}
 
-   return;
+	return;
 }
-
-
-
-/****************************************************************************
- *
- * Function: DecodeSlipPkt(char *, struct pcap_pkthdr*, u_char*)
- *
- * Purpose: For future expansion
- *
- * Arguments: user => I don't know what this is for, I don't use it but it has
- *                    to be there
- *            pkthdr => ptr to the packet header
- *            pkt => pointer to the real live packet data
- *
- * Returns: void function
- *
- ****************************************************************************/
-
-void DecodeSlipPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
-{
-}
-
-
-
-/****************************************************************************
- *
- * Function: DecodeRawPkt(char *, struct pcap_pkthdr*, u_char*)
- *
- * Purpose: For future expansion
- *
- * Arguments: user => I don't know what this is for, I don't use it but it has
- *                    to be there
- *            pkthdr => ptr to the packet header
- *            pkt => pointer to the real live packet data
- *
- * Returns: void function
- *
- ****************************************************************************/
-
-void DecodeRawPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
-{
-}
-
-
 
 /****************************************************************************
  *
@@ -621,99 +552,92 @@ void DecodeRawPkt(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
  *
  ****************************************************************************/
 
-void DecodeIP(u_char *pkt, int len)
+void DecodeIP(u_char * pkt, int len)
 {
-   IPHdr *iph;   /* ip header ptr */
-   u_int ip_len; /* length from the start of the ip hdr to the pkt end */
-   u_int hlen;   /* ip header length */
-   u_int off;    /* data offset */
+	IPHdr *iph;		/* ip header ptr */
+	u_int ip_len;		/* length from the start of the ip hdr to the pkt end */
+	u_int hlen;		/* ip header length */
+	u_int off;		/* data offset */
 
+	bzero((void *)&pip, sizeof(PrintIP));
 
-   bzero((void *) &pip, sizeof(PrintIP));
-
-   /* lay the IP struct over the raw data */
-   iph = (IPHdr *) pkt;
-
-#ifdef DEBUG
-   printf("ip header starts at: %p\n", iph);
-#endif
-
-   /* do a little validation */
-   if(len < sizeof(IPHdr))
-   {
-      fprintf(stderr, "Truncated header! (%d bytes)\n", len);
-      return;
-   }
-  
-   ip_len = ntohs(iph->ip_len);
-
-   if(len < ip_len)
-   {
-      fprintf(stderr, 
-              "Truncated packet!  Header says %d bytes, actually %d bytes\n", 
-              ip_len, len);
-      return;
-   }
-
-   /* set the IP header length */
-   hlen = iph->ip_hlen * 4;      
-
-   /* generate a timestamp */
-   GetTime(pip.timestamp);
-
-   /* start filling in the printout data structures */
-   strncpy(pip.saddr, inet_ntoa(iph->ip_src), 15);
-   strncpy(pip.daddr, inet_ntoa(iph->ip_dst), 15);
+	/* lay the IP struct over the raw data */
+	iph = (IPHdr *) pkt;
 
 #ifdef DEBUG
-   printf("Src addr = %s\n", pip.saddr);
-   printf("Dst addr = %s\n", pip.daddr);
+	printf("ip header starts at: %p\n", iph);
 #endif
-   
-   pip.ttl = iph->ip_ttl;
 
-   /* check for fragmented packets */
-   ip_len -= hlen;
-   off = ntohs(iph->ip_off);
+	/* do a little validation */
+	if (len < sizeof(IPHdr)) {
+		fprintf(stderr, "Truncated header! (%d bytes)\n", len);
+		return;
+	}
+
+	ip_len = ntohs(iph->ip_len);
+
+	if (len < ip_len) {
+		fprintf(stderr,
+			"Truncated packet!  Header says %d bytes, actually %d bytes\n",
+			ip_len, len);
+		return;
+	}
+
+	/* set the IP header length */
+	hlen = iph->ip_hlen * 4;
+
+	/* generate a timestamp */
+	GetTime(pip.timestamp);
+
+	/* start filling in the printout data structures */
+	strncpy(pip.saddr, inet_ntoa(iph->ip_src), 15);
+	strncpy(pip.daddr, inet_ntoa(iph->ip_dst), 15);
 
 #ifdef DEBUG
-   printf("off = %X:%X\n", off, (off & 0x1FFF));
+	printf("Src addr = %s\n", pip.saddr);
+	printf("Dst addr = %s\n", pip.daddr);
 #endif
 
-   if((off & 0x1FFF) == 0)
-   { 
+	pip.ttl = iph->ip_ttl;
+
+	/* check for fragmented packets */
+	ip_len -= hlen;
+	off = ntohs(iph->ip_off);
+
 #ifdef DEBUG
-      printf("IP header length: %d\n", hlen);
+	printf("off = %X:%X\n", off, (off & 0x1FFF));
 #endif
 
-      /* move the packet index to point to the transport layer */
-      pktidx = pktidx + hlen;
+	if ((off & 0x1FFF) == 0) {
+#ifdef DEBUG
+		printf("IP header length: %d\n", hlen);
+#endif
 
-      switch(iph->ip_proto)
-      {
-         case IPPROTO_TCP:
-                      strncpy(pip.proto, "TCP", 3);
-                      DecodeTCP(pktidx, len-hlen);
-                      return;
+		/* move the packet index to point to the transport layer */
+		pktidx = pktidx + hlen;
 
-         case IPPROTO_UDP:
-                      strncpy(pip.proto, "UDP", 3);
-                      DecodeUDP(pktidx, len-hlen);
-                      return;
+		switch (iph->ip_proto) {
+		case IPPROTO_TCP:
+			strncpy(pip.proto, "TCP", 3);
+			DecodeTCP(pktidx, len - hlen);
+			return;
 
-         case IPPROTO_ICMP:
-                      strncpy(pip.proto, "ICMP", 4);
-                      DecodeICMP(pktidx, len-hlen);
-                      return;
+		case IPPROTO_UDP:
+			strncpy(pip.proto, "UDP", 3);
+			DecodeUDP(pktidx, len - hlen);
+			return;
 
-         default: 
-                return;
+		case IPPROTO_ICMP:
+			strncpy(pip.proto, "ICMP", 4);
+			DecodeICMP(pktidx, len - hlen);
+			return;
 
-      }
-   }
+		default:
+			return;
+
+		}
+	}
 }
-
-
 
 /****************************************************************************
  *
@@ -728,462 +652,428 @@ void DecodeIP(u_char *pkt, int len)
  *
  ****************************************************************************/
 
-void DecodeTCP(u_char *pkt, int len)
+void DecodeTCP(u_char * pkt, int len)
 {
-   TCPHdr *tcph;  /* TCP packet header ptr */
-   int hlen;      /* TCP header length */
+	TCPHdr *tcph;		/* TCP packet header ptr */
+	int hlen;		/* TCP header length */
 
-   /* lay TCP on top of the data */
-   tcph = (TCPHdr *) pkt;
+	/* lay TCP on top of the data */
+	tcph = (TCPHdr *) pkt;
 
 #ifdef DEBUG
-   printf("tcp header starts at: %p\n", tcph);
+	printf("tcp header starts at: %p\n", tcph);
 #endif
 
-   /* stuff more data into the printout data struct */
-   pip.sport = ntohs(tcph->th_sport);
-   pip.dport = ntohs(tcph->th_dport);
+	/* stuff more data into the printout data struct */
+	pip.sport = ntohs(tcph->th_sport);
+	pip.dport = ntohs(tcph->th_dport);
 #ifdef DEBUG
-   printf("s-port = %d:%d   d-port = %d:%d\n", pip.sport, tcph->th_sport, pip.dport, tcph->th_dport);
+	printf("s-port = %d:%d   d-port = %d:%d\n", pip.sport, tcph->th_sport,
+	       pip.dport, tcph->th_dport);
 #endif
 
-   pip.seq = ntohl(tcph->th_seq);
-   pip.ack = ntohl(tcph->th_ack);
+	pip.seq = ntohl(tcph->th_seq);
+	pip.ack = ntohl(tcph->th_ack);
 
-   pip.win = ntohs(tcph->th_win);
-   pip.flags = tcph->th_flags;
-   hlen = tcph->th_off * 4;
+	pip.win = ntohs(tcph->th_win);
+	pip.flags = tcph->th_flags;
+	hlen = tcph->th_off * 4;
 
-   SetFlow();
+	SetFlow();
 
-   if(pv.verbose_flag)
-   {
-      PrintIPPkt(stdout, IPPROTO_TCP);
-  
-      if(pv.data_flag)
-         PrintNetData(stdout, (char *) (pkt + hlen), len-hlen);
-   }
+	if (pv.verbose_flag) {
+		PrintIPPkt(stdout, IPPROTO_TCP);
 
-   if(pv.log_flag)
-   {
-      OpenLogFile();
+		if (pv.data_flag)
+			PrintNetData(stdout, (char *)(pkt + hlen), len - hlen);
+	}
 
-      PrintIPPkt(log_ptr, IPPROTO_TCP);
-  
-      if(pv.data_flag)
-         PrintNetData(log_ptr, (char *) (pkt + hlen), len-hlen);
+	if (pv.log_flag) {
+		OpenLogFile();
 
-      fclose(log_ptr);
-   }
-}   
+		PrintIPPkt(log_ptr, IPPROTO_TCP);
 
+		if (pv.data_flag)
+			PrintNetData(log_ptr, (char *)(pkt + hlen), len - hlen);
 
-
-void DecodeUDP(u_char *pkt, int len)
-{
-   UDPHdr *udph;
-
-   udph = (UDPHdr *) pkt;
-#ifdef DEBUG
-   printf("UDP header starts at: %p\n", udph);
-#endif
-
-
-   pip.sport = ntohs(udph->uh_sport);
-   pip.dport = ntohs(udph->uh_dport);
-
-   pip.udp_len = ntohs(udph->uh_len);
-
-   SetFlow();
-
-   if(pv.verbose_flag)
-   {
-      PrintIPPkt(stdout, IPPROTO_UDP);
-
-      if(pv.data_flag)
-         PrintNetData(stdout, (char *) pkt + 8, len-8);
-   }
-
-   if(pv.log_flag)
-   {
-      OpenLogFile();
-
-      PrintIPPkt(log_ptr, IPPROTO_UDP);
-
-      if(pv.data_flag)
-         PrintNetData(log_ptr, (char *) pkt + 8, len-8);
-
-      fclose(log_ptr);
-   }
+		fclose(log_ptr);
+	}
 }
 
-
-
-
-void DecodeICMP(u_char *pkt, int len)
+void DecodeUDP(u_char * pkt, int len)
 {
-   ICMPHdr *icmph;
+	UDPHdr *udph;
 
-   icmph = (ICMPHdr *) pkt;
+	udph = (UDPHdr *) pkt;
+#ifdef DEBUG
+	printf("UDP header starts at: %p\n", udph);
+#endif
+
+	pip.sport = ntohs(udph->uh_sport);
+	pip.dport = ntohs(udph->uh_dport);
+
+	pip.udp_len = ntohs(udph->uh_len);
+
+	SetFlow();
+
+	if (pv.verbose_flag) {
+		PrintIPPkt(stdout, IPPROTO_UDP);
+
+		if (pv.data_flag)
+			PrintNetData(stdout, (char *)pkt + 8, len - 8);
+	}
+
+	if (pv.log_flag) {
+		OpenLogFile();
+
+		PrintIPPkt(log_ptr, IPPROTO_UDP);
+
+		if (pv.data_flag)
+			PrintNetData(log_ptr, (char *)pkt + 8, len - 8);
+
+		fclose(log_ptr);
+	}
+}
+
+void DecodeICMP(u_char * pkt, int len)
+{
+	ICMPHdr *icmph;
+
+	icmph = (ICMPHdr *) pkt;
 
 #ifdef DEBUG
-   printf("ICMP type: %d   code: %d\n", icmph->code, icmph->type);
+	printf("ICMP type: %d   code: %d\n", icmph->code, icmph->type);
 #endif
 
-   switch(icmph->type)
-   {
-      case ICMP_ECHOREPLY:
-                         sprintf(pip.icmp_str, "ECHO REPLY");
-                         break;
+	switch (icmph->type) {
+	case ICMP_ECHOREPLY:
+		sprintf(pip.icmp_str, "ECHO REPLY");
+		break;
 
-      case ICMP_DEST_UNREACH:
-                switch(icmph->code)
-                {
-                   case ICMP_NET_UNREACH:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:NET UNREACHABLE");
-                            break;
+	case ICMP_DEST_UNREACH:
+		switch (icmph->code) {
+		case ICMP_NET_UNREACH:
+			sprintf(pip.icmp_str, "UNREACHABLE:NET UNREACHABLE");
+			break;
 
-                   case ICMP_HOST_UNREACH:
-                            sprintf(pip.icmp_str,  
-                                    "UNREACHABLE:HOST UNREACHABLE");
-                            break;
+		case ICMP_HOST_UNREACH:
+			sprintf(pip.icmp_str, "UNREACHABLE:HOST UNREACHABLE");
+			break;
 
-                   case ICMP_PROT_UNREACH:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:PROTOCOL UNREACHABLE");
-                            break;
+		case ICMP_PROT_UNREACH:
+			sprintf(pip.icmp_str,
+				"UNREACHABLE:PROTOCOL UNREACHABLE");
+			break;
 
-                   case ICMP_PORT_UNREACH:
-                            sprintf(pip.icmp_str,  
-                                    "UNREACHABLE:PORT UNREACHABLE");
-                            break;
+		case ICMP_PORT_UNREACH:
+			sprintf(pip.icmp_str, "UNREACHABLE:PORT UNREACHABLE");
+			break;
 
-                   case ICMP_FRAG_NEEDED:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:FRAGMENTATION NEEDED");
-                            break;
+		case ICMP_FRAG_NEEDED:
+			sprintf(pip.icmp_str,
+				"UNREACHABLE:FRAGMENTATION NEEDED");
+			break;
 
-                   case ICMP_SR_FAILED:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:SOURCE ROUTE FAILED");
-                            break;
+		case ICMP_SR_FAILED:
+			sprintf(pip.icmp_str,
+				"UNREACHABLE:SOURCE ROUTE FAILED");
+			break;
 
-                   case ICMP_NET_UNKNOWN:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:NETWORK UNKNOWN");
-                            break;
+		case ICMP_NET_UNKNOWN:
+			sprintf(pip.icmp_str, "UNREACHABLE:NETWORK UNKNOWN");
+			break;
 
-                   case ICMP_HOST_UNKNOWN:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:HOST UNKNOWN");
-                            break;
+		case ICMP_HOST_UNKNOWN:
+			sprintf(pip.icmp_str, "UNREACHABLE:HOST UNKNOWN");
+			break;
 
-                   case ICMP_HOST_ISOLATED:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:HOST ISOLATED");
-                            break;
+		case ICMP_HOST_ISOLATED:
+			sprintf(pip.icmp_str, "UNREACHABLE:HOST ISOLATED");
+			break;
 
-                   case ICMP_NET_ANO:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:NET ANO");
-                            break;
+		case ICMP_NET_ANO:
+			sprintf(pip.icmp_str, "UNREACHABLE:NET ANO");
+			break;
 
-                   case ICMP_HOST_ANO:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:HOST ANO");
-                            break;
+		case ICMP_HOST_ANO:
+			sprintf(pip.icmp_str, "UNREACHABLE:HOST ANO");
+			break;
 
-                   case ICMP_NET_UNR_TOS:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:NET UNR TOS");
-                            break;
+		case ICMP_NET_UNR_TOS:
+			sprintf(pip.icmp_str, "UNREACHABLE:NET UNR TOS");
+			break;
 
-                   case ICMP_HOST_UNR_TOS:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:HOST UNR TOS");
-                            break;
+		case ICMP_HOST_UNR_TOS:
+			sprintf(pip.icmp_str, "UNREACHABLE:HOST UNR TOS");
+			break;
 
-                   case ICMP_PKT_FILTERED:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:PACKET FILTERED");
-                            break;
+		case ICMP_PKT_FILTERED:
+			sprintf(pip.icmp_str, "UNREACHABLE:PACKET FILTERED");
+			break;
 
-                   case ICMP_PREC_VIOLATION:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:PRECEDENCE VIOLATION");
-                            break;
+		case ICMP_PREC_VIOLATION:
+			sprintf(pip.icmp_str,
+				"UNREACHABLE:PRECEDENCE VIOLATION");
+			break;
 
-                  case ICMP_PREC_CUTOFF:
-                            sprintf(pip.icmp_str, 
-                                    "UNREACHABLE:PRECEDENCE CUTOFF");
-                            break;
-               }
-               break;
+		case ICMP_PREC_CUTOFF:
+			sprintf(pip.icmp_str, "UNREACHABLE:PRECEDENCE CUTOFF");
+			break;
+		}
+		break;
 
-      case ICMP_SOURCE_QUENCH:
-                         sprintf(pip.icmp_str, "SOURCE QUENCH");
-                         break;
+	case ICMP_SOURCE_QUENCH:
+		sprintf(pip.icmp_str, "SOURCE QUENCH");
+		break;
 
-      case ICMP_REDIRECT:
-                         sprintf(pip.icmp_str, "REDIRECT");
-                         break;
+	case ICMP_REDIRECT:
+		sprintf(pip.icmp_str, "REDIRECT");
+		break;
 
-      case ICMP_ECHO:
-                         sprintf(pip.icmp_str, "ECHO");
-                         break;
+	case ICMP_ECHO:
+		sprintf(pip.icmp_str, "ECHO");
+		break;
 
-      case ICMP_TIME_EXCEEDED:
-                         sprintf(pip.icmp_str, "TTL EXCEEDED");
-                         break;
+	case ICMP_TIME_EXCEEDED:
+		sprintf(pip.icmp_str, "TTL EXCEEDED");
+		break;
 
-      case ICMP_PARAMETERPROB:
-                         sprintf(pip.icmp_str, "PARAMETER PROBLEM");
-                         break;
+	case ICMP_PARAMETERPROB:
+		sprintf(pip.icmp_str, "PARAMETER PROBLEM");
+		break;
 
-      case ICMP_TIMESTAMP:
-                         sprintf(pip.icmp_str, "TIMESTAMP");
-                         break;
+	case ICMP_TIMESTAMP:
+		sprintf(pip.icmp_str, "TIMESTAMP");
+		break;
 
-      case ICMP_TIMESTAMPREPLY:
-                         sprintf(pip.icmp_str, "TIMESTAMP REPLY");
-                         break;
+	case ICMP_TIMESTAMPREPLY:
+		sprintf(pip.icmp_str, "TIMESTAMP REPLY");
+		break;
 
-      case ICMP_INFO_REQUEST:
-                         sprintf(pip.icmp_str, "INFO REQUEST");
-                         break;
+	case ICMP_INFO_REQUEST:
+		sprintf(pip.icmp_str, "INFO REQUEST");
+		break;
 
-      case ICMP_INFO_REPLY:
-                         sprintf(pip.icmp_str, "INFO REPLY");
-                         break;
+	case ICMP_INFO_REPLY:
+		sprintf(pip.icmp_str, "INFO REPLY");
+		break;
 
-      case ICMP_ADDRESS:
-                         sprintf(pip.icmp_str, "ADDRESS");
-                         break;
+	case ICMP_ADDRESS:
+		sprintf(pip.icmp_str, "ADDRESS");
+		break;
 
-      case ICMP_ADDRESSREPLY:
-                         sprintf(pip.icmp_str, "ADDRESS REPLY");
-                         break;
-   }
+	case ICMP_ADDRESSREPLY:
+		sprintf(pip.icmp_str, "ADDRESS REPLY");
+		break;
+	}
 
-   SetFlow();
+	SetFlow();
 
-   if(pv.verbose_flag)
-   {
-      PrintIPPkt(stdout, IPPROTO_ICMP);
+	if (pv.verbose_flag) {
+		PrintIPPkt(stdout, IPPROTO_ICMP);
 
-      if(pv.data_flag)
-         PrintNetData(stdout, (char *) pkt + 4, len-4);
-   }
+		if (pv.data_flag)
+			PrintNetData(stdout, (char *)pkt + 4, len - 4);
+	}
 
-   if(pv.log_flag)
-   {
-      OpenLogFile();
+	if (pv.log_flag) {
+		OpenLogFile();
 
-      PrintIPPkt(log_ptr, IPPROTO_ICMP);
-      
-      if(pv.data_flag)
-         PrintNetData(log_ptr, (char *) pkt + 4, len-4);
+		PrintIPPkt(log_ptr, IPPROTO_ICMP);
 
-      fclose(log_ptr);
-   }
+		if (pv.data_flag)
+			PrintNetData(log_ptr, (char *)pkt + 4, len - 4);
 
-   return;
+		fclose(log_ptr);
+	}
+
+	return;
 }
 
-
-
-void PrintIPPkt(FILE *fp, int type)
+void PrintIPPkt(FILE * fp, int type)
 {
 #ifdef DEBUG
-   printf("PrintIPPkt type = %d\n", type);
+	printf("PrintIPPkt type = %d\n", type);
 #endif
 
-   switch(type)
-   {
-      case IPPROTO_TCP:
-                if(flow == RIGHT)
-                {
-                   fprintf(fp, "%s: %s %s:%d -> %s:%d ", pip.timestamp,
-                           pip.proto,pip.saddr, pip.sport, pip.daddr, 
-                           pip.dport);
-                }
-                else
-                {
-                   fprintf(fp, "%s: %s %s:%d <- %s:%d ", pip.timestamp,
-                           pip.proto,pip.daddr, pip.dport, pip.saddr, 
-                           pip.sport);
-                }
+	switch (type) {
+	case IPPROTO_TCP:
+		if (flow == RIGHT) {
+			fprintf(fp, "%s: %s %s:%d -> %s:%d ", pip.timestamp,
+				pip.proto, pip.saddr, pip.sport, pip.daddr,
+				pip.dport);
+		} else {
+			fprintf(fp, "%s: %s %s:%d <- %s:%d ", pip.timestamp,
+				pip.proto, pip.daddr, pip.dport, pip.saddr,
+				pip.sport);
+		}
 
-                if(pip.flags & TH_SYN) fprintf(fp, "S"); else fprintf(fp, "*");
-                if(pip.flags & TH_FIN) fprintf(fp, "F"); else fprintf(fp, "*");
-                if(pip.flags & TH_RST) fprintf(fp, "R"); else fprintf(fp, "*");
-                if(pip.flags & TH_PUSH) fprintf(fp, "P"); else fprintf(fp, "*");
-                if(pip.flags & TH_ACK) fprintf(fp, "A"); else fprintf(fp, "*");
-                if(pip.flags & TH_URG) fprintf(fp, "U"); else fprintf(fp, "*");
+		if (pip.flags & TH_SYN)
+			fprintf(fp, "S");
+		else
+			fprintf(fp, "*");
+		if (pip.flags & TH_FIN)
+			fprintf(fp, "F");
+		else
+			fprintf(fp, "*");
+		if (pip.flags & TH_RST)
+			fprintf(fp, "R");
+		else
+			fprintf(fp, "*");
+		if (pip.flags & TH_PUSH)
+			fprintf(fp, "P");
+		else
+			fprintf(fp, "*");
+		if (pip.flags & TH_ACK)
+			fprintf(fp, "A");
+		else
+			fprintf(fp, "*");
+		if (pip.flags & TH_URG)
+			fprintf(fp, "U");
+		else
+			fprintf(fp, "*");
 
-                fprintf(fp, "\n");
+		fprintf(fp, "\n");
 
-                fprintf(fp, "        %lX:%lX win=%lX TTL=%d\n",pip.seq, pip.ack,
-                        pip.win, pip.ttl);
-                break;
+		fprintf(fp, "        %lX:%lX win=%lX TTL=%d\n", pip.seq,
+			pip.ack, pip.win, pip.ttl);
+		break;
 
-      case IPPROTO_UDP:
-                if(flow == RIGHT)
-                {
-                   fprintf(fp, "%s: %s %s.%d -> %s.%d len=%d TTL=%d\n",
-                           pip.timestamp, pip.proto, pip.saddr, pip.sport, 
-                           pip.daddr, pip.dport, pip.udp_len, pip.ttl);
-                }
-                else
-                {
-                   fprintf(fp, "%s: %s %s:%d <- %s:%d len=%d TTL=%d\n",
-                           pip.timestamp, pip.proto, pip.daddr, pip.dport,
-                           pip.saddr, pip.sport, pip.udp_len, pip.ttl);
-                }
+	case IPPROTO_UDP:
+		if (flow == RIGHT) {
+			fprintf(fp, "%s: %s %s.%d -> %s.%d len=%d TTL=%d\n",
+				pip.timestamp, pip.proto, pip.saddr, pip.sport,
+				pip.daddr, pip.dport, pip.udp_len, pip.ttl);
+		} else {
+			fprintf(fp, "%s: %s %s:%d <- %s:%d len=%d TTL=%d\n",
+				pip.timestamp, pip.proto, pip.daddr, pip.dport,
+				pip.saddr, pip.sport, pip.udp_len, pip.ttl);
+		}
 
-                break;
+		break;
 
-      case IPPROTO_ICMP:
-                if(flow == RIGHT)
-                {
-                   fprintf(fp, "%s: %s %s -> %s TTL=%d %s\n", pip.timestamp, 
-                           pip.proto, pip.saddr, pip.daddr, pip.ttl, 
-                           pip.icmp_str);
-                }
-                else
-                {
-                   fprintf(fp, "%s: %s %s <- %s TTL=%d %s\n", pip.timestamp,
-                           pip.proto, pip.daddr, pip.saddr, pip.ttl, 
-                           pip.icmp_str);
-                }
-                break;
-   }
+	case IPPROTO_ICMP:
+		if (flow == RIGHT) {
+			fprintf(fp, "%s: %s %s -> %s TTL=%d %s\n",
+				pip.timestamp, pip.proto, pip.saddr, pip.daddr,
+				pip.ttl, pip.icmp_str);
+		} else {
+			fprintf(fp, "%s: %s %s <- %s TTL=%d %s\n",
+				pip.timestamp, pip.proto, pip.daddr, pip.saddr,
+				pip.ttl, pip.icmp_str);
+		}
+		break;
+	}
 }
 
-void PrintNetData(FILE *fp, char *start, int len)
+void PrintNetData(FILE * fp, char *start, int len)
 {
-   char *end;
-   char hexbuf[STD_BUF];
-   char charbuf[STD_BUF];
-   int col;
-   int i;
+	char *end;
+	char hexbuf[STD_BUF];
+	char charbuf[STD_BUF];
+	int col;
+	int i;
 
+	end = start + len;
 
-   end = start + len;
+	do {
+		col = 0;
+		bzero(hexbuf, STD_BUF);
+		bzero(charbuf, STD_BUF);
 
-   do
-   {
-      col = 0;
-      bzero(hexbuf,STD_BUF);
-      bzero(charbuf,STD_BUF);
+		for (i = 0; i < 16; i++) {
+			if (start < end) {
+				sprintf(hexbuf + (i * 3), "%.2X ",
+					start[0] & 0xFF);
 
-      for(i=0;i<16;i++)
-      {
-         if(start < end)
-         {
-            sprintf(hexbuf+(i*3),"%.2X ",start[0] & 0xFF);
+				if (*start > 0x1F && *start < 0x7E) {
+					sprintf(charbuf + i + col, "%c",
+						start[0]);
+				} else {
+					sprintf(charbuf + i + col, ".");
+				}
+				start++;
+			}
+		}
 
-            if(*start > 0x1F && *start < 0x7E)
-            {
-               sprintf(charbuf+i+col,"%c",start[0]);
-            }
-            else
-            {
-               sprintf(charbuf+i+col, ".");
-            }
-            start++;
-         }
-      }
+		fprintf(fp, "     %-48s %s\n", hexbuf, charbuf);
+		fflush(fp);
 
-      fprintf(fp,"     %-48s %s\n",hexbuf,charbuf);
-      fflush(fp);
+	} while (start < end);
 
-   }while(start < end);
-
-   return;
+	return;
 }
 
-
-
-
-void DecodeARP(u_char *pkt, int len, int caplen)
+void DecodeARP(u_char * pkt, int len, int caplen)
 {
-   EtherARP *arph;
-   char timebuf[64];
-   struct in_addr saddr;
-   struct in_addr daddr;
-   char type[32];
+	EtherARP *arph;
+	char timebuf[64];
+	struct in_addr saddr;
+	struct in_addr daddr;
+	char type[32];
 
-   arph = (EtherARP *) pkt;
+	arph = (EtherARP *) pkt;
 
-   if(len < sizeof(EtherARP))
-   {
-      printf("Truncated packet\n");
-      return;
-   }
+	if (len < sizeof(EtherARP)) {
+		printf("Truncated packet\n");
+		return;
+	}
 
-   GetTime(timebuf);
-   memcpy((void *) &saddr, (void *) &arph->arp_spa, sizeof (struct in_addr));
-   memcpy((void *) &daddr, (void *) &arph->arp_tpa, sizeof (struct in_addr));
+	GetTime(timebuf);
+	memcpy((void *)&saddr, (void *)&arph->arp_spa, sizeof(struct in_addr));
+	memcpy((void *)&daddr, (void *)&arph->arp_tpa, sizeof(struct in_addr));
 
-   switch (ntohs(arph->ea_hdr.ar_op))
-   { 
-      case ARPOP_REQUEST:
-                  sprintf(type, "ARP request");
-                  break;
+	switch (ntohs(arph->ea_hdr.ar_op)) {
+	case ARPOP_REQUEST:
+		sprintf(type, "ARP request");
+		break;
 
-      case ARPOP_REPLY:
-                  sprintf(type, "ARP reply");
-                  break;
+	case ARPOP_REPLY:
+		sprintf(type, "ARP reply");
+		break;
 
-      case ARPOP_RREQUEST:
-                  sprintf(type, "RARP request");
-                  break;
+	case ARPOP_RREQUEST:
+		sprintf(type, "RARP request");
+		break;
 
-      case ARPOP_RREPLY:
-                  sprintf(type, "RARP reply");
-                  break;
+	case ARPOP_RREPLY:
+		sprintf(type, "RARP reply");
+		break;
 
-      default:
-                 sprintf(type, "unknown");
-                 return;
-   }
+	default:
+		sprintf(type, "unknown");
+		return;
+	}
 
-   if(pv.verbose_flag)
-   {
-      memcpy((void *) &saddr, (void *) &arph->arp_spa, sizeof (struct in_addr));
-      fprintf(stdout, "%s: %s %s", timebuf, "ARP", inet_ntoa(saddr));
-      memcpy((void *) &daddr, (void *) &arph->arp_tpa, sizeof (struct in_addr));
-      fprintf(stdout, " -> %s  %s\n", inet_ntoa(daddr), type);
-   }
+	if (pv.verbose_flag) {
+		memcpy((void *)&saddr, (void *)&arph->arp_spa,
+		       sizeof(struct in_addr));
+		fprintf(stdout, "%s: %s %s", timebuf, "ARP", inet_ntoa(saddr));
+		memcpy((void *)&daddr, (void *)&arph->arp_tpa,
+		       sizeof(struct in_addr));
+		fprintf(stdout, " -> %s  %s\n", inet_ntoa(daddr), type);
+	}
 
-   return;
+	return;
 }
 
-
-
-void DecodeIPX(u_char *pkt, int len)
+void DecodeIPX(u_char * pkt, int len)
 {
-   printf("IPX packet\n");
+	printf("IPX packet\n");
 
-   return;
+	return;
 }
-
-
 
 void GetTime(char *timebuf)
 {
-   time_t curr_time;
-   //struct tm *loc_time;
-   //curr_time = time(NULL);
-   time(&curr_time);
-   const struct tm* loc_time = localtime(&curr_time);
-   //strftime(timebuf,64-1,"%D[%T]",loc_time);
-   strcpy(timebuf,"");
+	time_t curr_time;
+	//struct tm *loc_time;
+	//curr_time = time(NULL);
+	time(&curr_time);
+	const struct tm *loc_time = localtime(&curr_time);
+	//strftime(timebuf,64-1,"%D[%T]",loc_time);
+	strcpy(timebuf, "");
 }
-
-
 
 /*----------------------------------------------------------------------------
  *
@@ -1197,163 +1087,139 @@ void GetTime(char *timebuf)
 
 char *copy_argv(char **argv)
 {
-  char **p;
-  u_int len = 0;
-  char *buf;
-  char *src, *dst;
-  void ftlerr(char *, ...);
+	char **p;
+	u_int len = 0;
+	char *buf;
+	char *src, *dst;
+	void ftlerr(char *, ...);
 
-  p = argv;
-  if (*p == 0) return 0;
+	p = argv;
+	if (*p == 0)
+		return 0;
 
-  while (*p)
-    len += strlen(*p++) + 1;
+	while (*p)
+		len += strlen(*p++) + 1;
 
-  buf = (char *) malloc (len);
-  if(buf == NULL)
-  {
-     fprintf(stderr, "malloc() failed: %s\n", strerror(errno));
-     exit(0);
-  }
-  p = argv;
-  dst = buf;
-  while ((src = *p++) != NULL)
-    {
-      while ((*dst++ = *src++) != '\0');
-      dst[-1] = ' ';
-    }
-  dst[-1] = '\0';
+	buf = (char *)malloc(len);
+	if (buf == NULL) {
+		fprintf(stderr, "malloc() failed: %s\n", strerror(errno));
+		exit(0);
+	}
+	p = argv;
+	dst = buf;
+	while ((src = *p++) != NULL) {
+		while ((*dst++ = *src++) != '\0') ;
+		dst[-1] = ' ';
+	}
+	dst[-1] = '\0';
 
-  return buf;
+	return buf;
 }
-
-
 
 void SetFlow()
 {
-   u_long testaddr1;
-   u_long testaddr2;
-   struct in_addr sin;
-   struct in_addr din;
+	u_long testaddr1;
+	u_long testaddr2;
+	struct in_addr sin;
+	struct in_addr din;
 
-   if(((sin.s_addr = inet_addr(pip.saddr)) == -1)||
-      ((din.s_addr = inet_addr(pip.daddr)) == -1))
-   {
-      fprintf(stderr,"ERROR: SetFlow() problem doing address conversion\n");
-      CleanExit();
-   }
-   else
-   {
-      testaddr1 = ((u_long)sin.s_addr & NETMASK);
-      testaddr2 = ((u_long)din.s_addr & NETMASK);
+	if (((sin.s_addr = inet_addr(pip.saddr)) == -1) ||
+	    ((din.s_addr = inet_addr(pip.daddr)) == -1)) {
+		
+		/*
+		fprintf(stderr,
+			"ERROR: SetFlow() problem doing address conversion\n");
+		printf("Src addr = %s\n", pip.saddr);
+		printf("Dst addr = %s\n", pip.daddr);
+		CleanExit();
+		*/
+	} else {
+		testaddr1 = ((u_long) sin.s_addr & NETMASK);
+		testaddr2 = ((u_long) din.s_addr & NETMASK);
 
-      if(testaddr1 == testaddr2)
-      {
-         if(sin.s_addr <= din.s_addr)
-            flow = RIGHT;
-         else
-            flow = LEFT;
+		if (testaddr1 == testaddr2) {
+			if (sin.s_addr <= din.s_addr)
+				flow = RIGHT;
+			else
+				flow = LEFT;
 
-         return;
-      }
-
+			return;
+		}
 
 #ifdef DEBUG
-      printf("source address = %lX  homenet = %lX\n", testaddr1, pv.homenet);
+		printf("source address = %lX  homenet = %lX\n", testaddr1,
+		       pv.homenet);
 #endif
 
-      if(testaddr1 == pv.homenet)
-      {
-         if(testaddr2 != pv.homenet)
-            flow = LEFT;
-         else
-            flow = RIGHT; 
-      }
-      else
-      {
-         flow = RIGHT;
-      }
-   }
+		if (testaddr1 == pv.homenet) {
+			if (testaddr2 != pv.homenet)
+				flow = LEFT;
+			else
+				flow = RIGHT;
+		} else {
+			flow = RIGHT;
+		}
+	}
 }
-
-
-
-
 
 int OpenLogFile()
 {
-   char log_path[STD_BUF];
-   char log_file[STD_BUF];
-   char timebuf[STD_BUF];
-   char proto[5];
+	char log_path[STD_BUF];
+	char log_file[STD_BUF];
+	char timebuf[STD_BUF];
+	char proto[5];
 
+	bzero(log_path, STD_BUF);
+	bzero(log_file, STD_BUF);
+	bzero(timebuf, STD_BUF);
+	bzero(proto, 5);
 
-   bzero(log_path, STD_BUF);
-   bzero(log_file, STD_BUF);
-   bzero(timebuf, STD_BUF);
-   bzero(proto, 5);
-
-   if(flow == LEFT)
-   {
-      sprintf(log_path, "%s/%s", pv.log_dir, pip.daddr);
-   }
-   else
-   {
-      sprintf(log_path, "%s/%s", pv.log_dir, pip.saddr);
-   }   
+	if (flow == LEFT) {
+		sprintf(log_path, "%s/%s", pv.log_dir, pip.daddr);
+	} else {
+		sprintf(log_path, "%s/%s", pv.log_dir, pip.saddr);
+	}
 
 #ifdef DEBUG
-   fprintf(stderr, "Creating directory: %s\n",log_path);
+	fprintf(stderr, "Creating directory: %s\n", log_path);
 #endif
 
-   if(mkdir(log_path,S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH))
-   {
+	if (mkdir(log_path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) {
 #ifdef DEBUG
-      if(errno != EEXIST)
-      {
-         printf("Problem creating directory %s\n",log_path);
-      }
+		if (errno != EEXIST) {
+			printf("Problem creating directory %s\n", log_path);
+		}
 #endif
-   }
-
+	}
 #ifdef DEBUG
-   printf("Directory Created!\n");
+	printf("Directory Created!\n");
 #endif
 
-   if((!strcasecmp(pip.proto, "TCP"))||
-      (!strcasecmp(pip.proto, "UDP")))
-   {
-      if(pip.sport >= pip.dport)
-      {
-         sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto, pip.sport, 
-                 pip.dport);
-      }
-      else
-      {
-         sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto, pip.dport, 
-                 pip.sport);
-      }
-   }
-   else
-   {
-      sprintf(log_file, "%s/%s", log_path, pip.proto);
-   }   
+	if ((!strcasecmp(pip.proto, "TCP")) || (!strcasecmp(pip.proto, "UDP"))) {
+		if (pip.sport >= pip.dport) {
+			sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto,
+				pip.sport, pip.dport);
+		} else {
+			sprintf(log_file, "%s/%s:%d-%d", log_path, pip.proto,
+				pip.dport, pip.sport);
+		}
+	} else {
+		sprintf(log_file, "%s/%s", log_path, pip.proto);
+	}
 
 #ifdef DEBUG
-   printf("Opening file: %s\n", log_file);
+	printf("Opening file: %s\n", log_file);
 #endif
 
-   if((log_ptr = fopen(log_file, "a")) == NULL)
-   {
-       fprintf(stderr, "ERROR: OpenLogFile() => fopen() log file: %s\n", 
-               strerror(errno));
-       exit(1);
-   }
-
+	if ((log_ptr = fopen(log_file, "a")) == NULL) {
+		fprintf(stderr,
+			"ERROR: OpenLogFile() => fopen() log file: %s\n",
+			strerror(errno));
+		exit(1);
+	}
 #ifdef DEBUG
-   printf("File opened...\n");
+	printf("File opened...\n");
 #endif
 
-   return 0;
+	return 0;
 }
-
