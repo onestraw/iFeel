@@ -933,7 +933,7 @@ void DecodeDNS(u_char *pkt, int len)
 	dname[i-1]='\0';
 	//fprintf(stdout,"Src ip:%s\tURL: %s\n",pip.saddr,dname);
 	RecordDomainName(inet_addr(pip.saddr),dname);
-	if((++pcnt)==100)
+	if((++pcnt)==1)
 	{//print once every 100 requests
 		printf("|----------------------------|\n");
 		PrintDNlist(2);
@@ -1344,7 +1344,7 @@ void GetTime(char *timebuf)
 
    curr_time = time(NULL);
    loc_time = localtime(&curr_time);
-   strftime(timebuf,STD_BUF-1,"%m/%d/%y[%H.%M.%S]",loc_time);
+   //strftime(timebuf,STD_BUF-1,"%m/%d/%y[%H.%M.%S]",loc_time);
 }
 
 
