@@ -178,10 +178,6 @@ u_int pktlen;
 {
 	struct ethhdr *ep;
 	struct iphdr *ip;
-	static struct align {
-		struct iphdr ip;
-		char buf[PKTLEN];
-	} a1;
 	u_short off;
 
 	g_timein = time((time_t *) 0);
@@ -194,8 +190,7 @@ u_int pktlen;
 	}
 	pkt += sizeof(struct ethhdr);
 	pktlen -= sizeof(struct ethhdr);
-	memcpy(&a1, pkt, pktlen);
-	ip = &a1.ip;
+	ip = (struct iphdr*)pkt;
 	g_saddr = ip->saddr;
 	g_daddr = ip->daddr;
 
