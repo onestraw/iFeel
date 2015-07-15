@@ -43,6 +43,7 @@ MY_CFLAGS =  -export-dynamic -g \
 MY_LIBS   =  -lpcap \
 	-lpthread \
 	-L./plugin/lib -Wl,-rpath=./plugin/lib -ldnseye -lportscan \
+	-lsearchword_c -lsearchword \
 	#-L./threadpool -Wl,-rpath=./threadpool -lthreadpool \
 
 # The pre-processor options used by the cpp (man cpp for more).
@@ -78,7 +79,7 @@ CXXFLAGS= -g #-O2
 CC     = gcc
 
 # The C++ program compiler.
-#CXX    = g++
+CXX    = g++
 
 # Un-comment the following line to compile C programs as C++ ones.
 #CC     = $(CXX)

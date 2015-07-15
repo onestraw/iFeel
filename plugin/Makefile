@@ -9,26 +9,34 @@ endif
 
 TARGETS = lib/libdnseye.so 
 TARGETS += lib/libportscan.so 
+TARGETS += lib/libsearchword.so 
+TARGETS += lib/libsearchword_c.so 
 
 all: $(TARGETS)
 
-portscan.o: dnseye/dnseye.h dnseye/dnseye.c
-portscan.o: portscan/portscan.h portscan/portscan.c
+lib/libdnseye.so: lib/dnseye.o
+	$(CC) -shared -o $@ $< ${LDLIBS}
+lib/libportscan.so: lib/portscan.o
+	$(CC) -shared -o $@ $< ${LDLIBS}
+lib/libsearchword.so: lib/searchword.o lib/decode.o
+	$(CXX) -shared -o $@ $^ ${LDLIBS}
+lib/libsearchword_c.so: lib/searchword_c.o
+	$(CXX) -shared -o $@ $< -L./lib -lsearchword
 
-# Short-hand aliases
-shared: lib/libportscan.so
-
-lib/libdnseye.so: dnseye/dnseye.c dnseye/dnseye.h
-	$(CC) -shared -fPIC ${CFLAGS} -o $@ $< ${LDLIBS}
-
-lib/libportscan.so: portscan/portscan.c portscan/portscan.h
-	$(CC) -shared -fPIC ${CFLAGS} -o $@ $< ${LDLIBS}
-
-libdnseye.o: dnseye/dnseye.c dnseye/dnseye.h
+lib/dnseye.o: dnseye/dnseye.c 
 	$(CC) -c -fPIC ${CFLAGS} -o $@ $<
-
-libportscan.o: portscan/portscan.c portscan/portscan.h
+lib/portscan.o: portscan/portscan.c
 	$(CC) -c -fPIC ${CFLAGS} -o $@ $<
+sw = searchword
+lib/searchword.o: $(sw)/searchword.cc 
+	$(CXX) -c -fPIC -o $@ $<
+lib/decode.o: $(sw)/decode.cc 
+	$(CXX) -c -fPIC -o $@ $<
+lib/searchword_c.o: $(sw)/c_api.cc
+	$(CXX) -c -fPIC -o $@ $<
+
+#g++ -shared -fPIC -o lib/libsearchword.so searchword/searchword.*  searchword/decode.* 
+#g++ -shared -fPIC -o lib/libsearchword_c.so  searchword/c_api.cc
 
 clean:
-	rm -f $(TARGETS) *~ */*~ */*.o
+	rm -f $(TARGETS) *~ */*~ *.o */*.o

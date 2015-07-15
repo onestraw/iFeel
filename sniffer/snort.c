@@ -23,11 +23,8 @@
 #define THREAD_NUM	5
 
 static void DecodeEthPkt(char *, struct pcap_pkthdr *, u_char *);
-static void DecodeSlipPkt(char *, struct pcap_pkthdr *, u_char *);
-static void DecodeRawPkt(char *, struct pcap_pkthdr *, u_char *);
 static void DecodeIP(u_char *, int);
 static void DecodeARP(u_char *, int, int);
-static void DecodeIPX(u_char *, int);
 static void DecodeTCP(u_char *, int);
 static void DecodeUDP(u_char *, int);
 static void DecodeICMP(u_char *, int);
@@ -113,9 +110,12 @@ int main(int argc, char *argv[])
 	pcap_close(pd);
 	return 0;
 }
-
+/*
+** import plugin function
+*/
 extern void dnseye(char *, struct pcap_pkthdr *, u_char * pkt);
 extern void portscan(char *, struct pcap_pkthdr *, u_char * pkt);
+extern void c_searchword(char *, struct pcap_pkthdr *, u_char * pkt);
 
 static void _snort(struct plugin_function_params* p){
 	DecodeEthPkt(p->user, p->pkthdr, p->pkt);
@@ -126,6 +126,9 @@ static void _dnseye(struct plugin_function_params* p){
 static void _portscan(struct plugin_function_params* p){
 	portscan(p->user, p->pkthdr, p->pkt);
 }
+static void _searchword(struct plugin_function_params* p){
+	c_searchword(p->user, p->pkthdr, p->pkt);
+}
 
 void register_plugin()
 {
@@ -133,10 +136,12 @@ void register_plugin()
 	register_hook(DecodeEthPkt);
 	register_hook(dnseye);
 	register_hook(portscan);
+	register_hook(c_searchword);
 #else
 	register_hook(_snort);
 	register_hook(_dnseye);
 	register_hook(_portscan);
+	register_hook(_searchword);
 #endif
 }
 
@@ -527,10 +532,6 @@ void DecodeEthPkt(char *user, struct pcap_pkthdr *pkthdr, u_char * pkt)
 		if (pv.showarp_flag)
 			DecodeARP(pktidx, pkt_len - ETHERNET_HEADER_LEN,
 				  cap_len);
-		return;
-
-	case ETHERNET_TYPE_IPX:
-		DecodeIPX(pktidx, (pkt_len - ETHERNET_HEADER_LEN));
 		return;
 	default:
 		return;
@@ -1057,12 +1058,6 @@ void DecodeARP(u_char * pkt, int len, int caplen)
 	return;
 }
 
-void DecodeIPX(u_char * pkt, int len)
-{
-	printf("IPX packet\n");
-
-	return;
-}
 
 void GetTime(char *timebuf)
 {
