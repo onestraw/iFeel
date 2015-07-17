@@ -20,6 +20,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <time.h>
 
 //#define DEBUG 1
 #define THREAD_SUPPORT 1
@@ -255,10 +256,8 @@ PV pv;
 int datalink;
 char *progname;
 char *pcap_cmd;
-char *pktidx;
 pcap_t *pd;
 pcap_handler grinder;
-PrintIP pip;
 FILE *log_ptr;
 int flow;
 

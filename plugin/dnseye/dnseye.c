@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998 Martin Roesch <roesch@clark.net>
+** Copyright (C) 2015 geeksword <geeksword@163.com>
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -17,66 +17,29 @@
 */
 
 #include"dnseye.h"
-void DecodeIP(u_char *, int);
-void DecodeUDP(u_char *, int);
+static void DecodeIP(u_char *, int);
+static void DecodeUDP(u_char *, int);
+static u_char* pktidx;
+static PrintIP pip;
+struct DNSRequest *g_dnslist=NULL;
+static u_int pcnt;
+#define PCNT_THRESHOLD	5
 
-/****************************************************************************
- *
- * Function: CleanExit()
- *
- * Purpose:  Clean up misc file handles and such and exit
- *
- * Arguments: None.
- *
- * Returns: void function
- *
- ****************************************************************************/
-void CleanExit()
-{
-   printf("Exiting...\n");
+/****************************************************************************/
 
-   pcap_close(pd);
-
-   if(pv.log_flag)
-      fclose(log_ptr);
-   if(g_dnslist)
-   {
-      PrintDNlist(3);
-      ReleaseDNlist();
-   }
-   exit(0);
-}
-
-/****************************************************************************
- *
- * Function: DecodeEthPkt(char *, struct pcap_pkthdr*, u_char*)
- *
- * Purpose: Decode those fun loving ethernet packets, one at a time!
- *
- * Arguments: user => I don't know what this is for, I don't use it but it has 
- *                    to be there
- *            pkthdr => ptr to the packet header
- *            pkt => pointer to the real live packet data
- *
- * Returns: void function
- *
- ****************************************************************************/
 void dnseye(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
 {
    int pkt_len;  /* suprisingly, the length of the packet */
-   int cap_len;  /* caplen value */
    int pkt_type; /* type of pkt (ARP, IP, etc) */
    EtherHdr *eh; /* ethernet header pointer (thanks Mike!) */
 
    /* set the lengths we need */
    pkt_len = pkthdr->len;
-   cap_len = pkthdr->caplen;
 
    /* do a little validation */
-   if(cap_len < ETHERNET_HEADER_LEN)
-   {
+   if(pkthdr->caplen < ETHERNET_HEADER_LEN){
       fprintf(stderr, "Ethernet header length < cap len! (%d bytes)\n", 
-              cap_len);
+              pkthdr->caplen);
       return;
    }   
 
@@ -96,7 +59,7 @@ void dnseye(char *user, struct pcap_pkthdr *pkthdr, u_char *pkt)
    {
       case ETHERNET_TYPE_IP:
                       DecodeIP(pktidx, pkt_len-ETHERNET_HEADER_LEN);
-                      return;
+             return;
       default:
              return;
    }
@@ -129,16 +92,14 @@ void DecodeIP(u_char *pkt, int len)
    iph = (IPHdr *) pkt;
 
    /* do a little validation */
-   if(len < sizeof(IPHdr))
-   {
+   if(len < sizeof(IPHdr)){
       fprintf(stderr, "Truncated header! (%d bytes)\n", len);
       return;
    }
   
    ip_len = ntohs(iph->ip_len);
 
-   if(len < ip_len)
-   {
+   if(len < ip_len){
       fprintf(stderr, 
               "Truncated packet!  Header says %d bytes, actually %d bytes\n", 
               ip_len, len);
@@ -166,16 +127,8 @@ void DecodeIP(u_char *pkt, int len)
    ip_len -= hlen;
    off = ntohs(iph->ip_off);
 
-#ifdef DEBUG
-   printf("off = %X:%X\n", off, (off & 0x1FFF));
-#endif
 
-   if((off & 0x1FFF) == 0)
-   { 
-#ifdef DEBUG
-      printf("IP header length: %d\n", hlen);
-#endif
-
+   if((off & 0x1FFF) == 0){ 
       /* move the packet index to point to the transport layer */
       pktidx = pktidx + hlen;
 
@@ -191,7 +144,6 @@ void DecodeIP(u_char *pkt, int len)
                 return;
          default: 
                 return;
-
       }
    }
 }
@@ -199,19 +151,14 @@ void DecodeIP(u_char *pkt, int len)
 void DecodeUDP(u_char *pkt, int len)
 {
    UDPHdr *udph;
-
    udph = (UDPHdr *) pkt;
-#ifdef DEBUG
-   printf("UDP header starts at: %p\n", udph);
-#endif
 
    pip.sport = ntohs(udph->uh_sport);
    pip.dport = ntohs(udph->uh_dport);
 
    pip.udp_len = ntohs(udph->uh_len);
 
-   if(pip.dport==53)
-   {
+   if(pip.dport==53){
    	pktidx = pktidx +8;
    	//fprintf(stdout,"dns packet, dns pkt len=%d\n",len-8);
    	//PrintNetData(stdout,(char *)pktidx, len-8);
@@ -219,16 +166,14 @@ void DecodeUDP(u_char *pkt, int len)
    }
    SetFlow();
 
-   if(pv.verbose_flag)
-   {
+   if(pv.verbose_flag){
       PrintIPPkt(stdout, IPPROTO_UDP);
 
       if(pv.data_flag)
          PrintNetData(stdout, (char *) pkt + 8, len-8);
    }
 
-   if(pv.log_flag)
-   {
+   if(pv.log_flag){
       OpenLogFile();
 
       PrintIPPkt(log_ptr, IPPROTO_UDP);
@@ -247,20 +192,16 @@ void PrintDNlist(int level)
 	struct SLD *sld;
 	struct SSLD *ssld;
 	struct in_addr saddr;
-	for(dnsr=g_dnslist; dnsr; dnsr=dnsr->next)
-	{
+	for(dnsr=g_dnslist; dnsr; dnsr=dnsr->next){
 		saddr.s_addr = dnsr->saddr;
 		fprintf(stdout,"From: %s\tCount: %lu\n",inet_ntoa(saddr),dnsr->cnt);
-		for(tld = dnsr->tld; tld; tld=tld->next)
-		{
+		for(tld = dnsr->tld; tld; tld=tld->next){
 			fprintf(stdout,"+%s\tCount:%lu\n",tld->name,tld->cnt);
-			for(sld = tld->sld; sld; sld=sld->next)
-			{
+			for(sld = tld->sld; sld; sld=sld->next){
 				fprintf(stdout,"-+%s.%s\tCount:%lu\n",sld->name,tld->name,sld->cnt);
 				for(ssld = sld->ssld; ssld && level>2; ssld=ssld->next)
 					fprintf(stdout,"---%s.%s.%s\n",ssld->name,sld->name,tld->name);	
 			}
-				
 		}
 	}
 }
@@ -270,14 +211,10 @@ void ReleaseDNlist()
 	struct TLD *tld;
 	struct SLD *sld;
 	struct SSLD *ssld;
-	while(dnsr = g_dnslist)
-	{
-		while(tld = dnsr->tld)
-		{
-			while(sld = tld->sld)
-			{
-				while(ssld = sld->ssld)
-				{
+	while(dnsr = g_dnslist){
+		while(tld = dnsr->tld){
+			while(sld = tld->sld){
+				while(ssld = sld->ssld){
 					sld->ssld = ssld->next;
 					free(ssld);
 				}
@@ -298,16 +235,20 @@ void RecordDomainName(u_long saddr, char *dname)
 	int i,j,k,len, idx[3];
 	len= strlen(dname);
 	
-	for(i=0,j=0; i<len && j<3; i++)
-		if(dname[i]=='.')
+	for(i=0,j=0; i<len && j<3; i++){
+		if(dname[i]=='.'){
 			idx[j++]=i;
-	if(j<1)
+		}
+	}
+	if(j<1){
 		return;
-	else if(j==3)
-	{
-		for(i=len-1,j=2; i>-1 &&j>-1; i--)
-			if(dname[i]=='.')
+	}
+	else if(j==3){
+		for(i=len-1,j=2; i>-1 &&j>-1; i--){
+			if(dname[i]=='.'){
 				idx[j--]=i;
+			}
+		}
 		j=3;
 	}
 	memset(name1,0,5);
@@ -315,37 +256,38 @@ void RecordDomainName(u_long saddr, char *dname)
 	memset(name3,0,64);
 	i=idx[--j]+1;
 	k=0; 
-	while(i<len)
+	while(i<len){
 		name1[k++] = dname[i++];
-	if(j<1)
-	{
+	}
+	if(j<1){
 		i=0;
 		j=-1;
 	}
-	else
-	{
+	else{
 		i=idx[--j]+1;
 	}
 	k=0;
-	while(i<idx[j+1])
+	while(i<idx[j+1]){
 		name2[k++] = dname[i++];
-		
-	if(j<0)
+	}
+	if(j<0){
 		name3[0]='\0';
-	else
-		for(i=0,k=0; i<idx[j]; i++)
+	}else{
+		for(i=0,k=0; i<idx[j]; i++){
 			name3[k++] = dname[i];
+		}
+	}
 	printf("%s\t%s\t%s\n",name1,name2,name3);
 	/* insert the domain name into g_dnlist */
 	//first level
 	struct DNSRequest *dnsr;
-	for(dnsr=g_dnslist; dnsr; dnsr=dnsr->next)
-		if(saddr = dnsr->saddr)
+	for(dnsr=g_dnslist; dnsr; dnsr=dnsr->next){
+		if(saddr = dnsr->saddr){
 			break;
-	if(!dnsr)
-	{
-		if((dnsr = (struct DNSRequest*)malloc(sizeof(struct DNSRequest)))==NULL)
-		{
+		}
+	}
+	if(!dnsr){
+		if((dnsr = (struct DNSRequest*)malloc(sizeof(struct DNSRequest)))==NULL){
 			fprintf(stderr,"malloc DNSRequest error\n");
 			exit(-1);
 		}
@@ -357,13 +299,14 @@ void RecordDomainName(u_long saddr, char *dname)
 	dnsr->cnt++;
 	//second level
 	struct TLD *tld;
-	for(tld=dnsr->tld; tld; tld=tld->next)
-		if(strcmp(tld->name, name1)==0)
+	for(tld=dnsr->tld; tld; tld=tld->next){
+		if(strcmp(tld->name, name1)==0){
 			break;
-	if(!tld)//create a new TLD node
-	{
-		if((tld = (struct TLD*)malloc(sizeof(struct TLD)))==NULL)
-		{
+		}
+	}
+	//create a new TLD node
+	if(!tld){
+		if((tld = (struct TLD*)malloc(sizeof(struct TLD)))==NULL){
 			fprintf(stderr,"malloc TLD error\n");
 			exit(-1);
 		}
@@ -375,13 +318,13 @@ void RecordDomainName(u_long saddr, char *dname)
 	tld->cnt ++;
 	//third level
 	struct SLD *sld;
-	for(sld = tld->sld; sld; sld=sld->next)
-		if(strcmp(sld->name, name2)==0)
+	for(sld = tld->sld; sld; sld=sld->next){
+		if(strcmp(sld->name, name2)==0){
 			break;
-	if(!sld)
-	{
-		if((sld = (struct SLD*)malloc(sizeof(struct SLD)))==NULL)
-		{
+		}
+	}
+	if(!sld){
+		if((sld = (struct SLD*)malloc(sizeof(struct SLD)))==NULL){
 			fprintf(stderr,"malloc SLD error\n");
 			exit(-1);
 		}
@@ -391,17 +334,18 @@ void RecordDomainName(u_long saddr, char *dname)
 		tld->sld = sld;
 	}
 	sld->cnt++;
-	if(name3[0]=='\0')
+	if(name3[0]=='\0'){
 		return;
+	}
 	//fourth level
 	struct SSLD *ssld;
-	for(ssld=sld->ssld; ssld; ssld=ssld->next)
-		if(strcmp(ssld->name, name3)==0)
+	for(ssld=sld->ssld; ssld; ssld=ssld->next){
+		if(strcmp(ssld->name, name3)==0){
 			break;
-	if(!ssld)
-	{
-		if((ssld = (struct SSLD*)malloc(sizeof(struct SSLD)))==NULL)
-		{
+		}
+	}
+	if(!ssld){
+		if((ssld = (struct SSLD*)malloc(sizeof(struct SSLD)))==NULL){
 			fprintf(stderr,"malloc SSLD error\n");
 			exit(-1);
 		}
@@ -423,10 +367,8 @@ void DecodeDNS(u_char *pkt, int len)
 	quest = pkt + 12;
 	u_short i = 0;
 	//PrintNetData(stdout,(char *)quest, len);
-	while(cnt=(int)(*quest))
-	{
-		for(cnt; cnt >0; cnt--)
-		{
+	while(cnt=(int)(*quest)){
+		for(cnt; cnt >0; cnt--){
 			quest ++;
 			dname[i++] = *quest;
 		}
@@ -434,7 +376,7 @@ void DecodeDNS(u_char *pkt, int len)
 		dname[i++]='.';
 	}
 	dname[i-1]='\0';
-	fprintf(stdout,"Src ip:%s\tURL: %s\n",pip.saddr,dname);
+	fprintf(stdout,"%s\tsrc ip: %s\turl: %s\n",pip.timestamp, pip.saddr, dname);
 	/*
 	RecordDomainName(inet_addr(pip.saddr),dname);
 	if((++pcnt) > PCNT_THRESHOLD)
@@ -445,18 +387,4 @@ void DecodeDNS(u_char *pkt, int len)
 	}
 	*/
 }
-
-
-
-void GetTime(char *timebuf)
-{
-   time_t curr_time;
-   struct tm *loc_time;
-
-   curr_time = time(NULL);
-   loc_time = localtime(&curr_time);
-   //strftime(timebuf,STD_BUF-1,"%m/%d/%y[%H.%M.%S]",loc_time);
-   timebuf = NULL;
-}
-
 

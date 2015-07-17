@@ -43,10 +43,6 @@ struct DNSRequest{
 	struct TLD *tld;
 	struct DNSRequest *next;
 };
-//struct TLD *g_dnlist=NULL;
-struct DNSRequest *g_dnslist=NULL;
-static u_int pcnt;
-#define PCNT_THRESHOLD	5
 
 void PrintDNlist(int level);
 void ReleaseDNlist();

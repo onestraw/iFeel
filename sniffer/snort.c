@@ -29,6 +29,8 @@ static void DecodeTCP(u_char *, int);
 static void DecodeUDP(u_char *, int);
 static void DecodeICMP(u_char *, int);
 void SetFlow();
+char *pktidx;
+PrintIP pip;
 
 /****************************************************************************
  *
@@ -1062,12 +1064,9 @@ void DecodeARP(u_char * pkt, int len, int caplen)
 void GetTime(char *timebuf)
 {
 	time_t curr_time;
-	//struct tm *loc_time;
-	//curr_time = time(NULL);
 	time(&curr_time);
 	const struct tm *loc_time = localtime(&curr_time);
-	//strftime(timebuf,64-1,"%D[%T]",loc_time);
-	strcpy(timebuf, "");
+	strftime(timebuf,64-1,"%D[%T]",loc_time);
 }
 
 /*----------------------------------------------------------------------------
