@@ -1,20 +1,19 @@
-#dnseye
-****   
+# dnseye
 
-##introduction
+## introduction
 
 1. Written by C.  
 2. Based on snort-0.96.  
 3. Add a function of monitoring all DNS requests in local LAN.  
 4. Using a 4-level linklist to record source ip and domain name of DNS request packets.  
 
-##build
+## build
 
 1. sudo apt-get install libpcap-dev
 2. cd dnseye
 3. make
 
-##example
+## example
 
 		geeksword@ubuntu:~/code/traffic-analysis/dnseye$ make 
 		geeksword@ubuntu:~/code/traffic-analysis/dnseye$ sudo ./dnseye 
@@ -184,10 +183,3 @@
 		---passport.weibo.com
 		-+ubuntu.com	Count:1
 		---daisy.ubuntu.com
-
-
-##about
-
-- author: `geeksword`
-- email: geeksword@163.com
-- blog: http://onestraw.net

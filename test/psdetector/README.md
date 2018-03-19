@@ -1,6 +1,6 @@
-#port scan detector
+# port scan detector
 
-##Introduction
+## Introduction
 --------
 
 - build: gcc catcher.c -lpcap -o catcher
@@ -28,12 +28,3 @@
 				  timeout seconds
 		  -w webcount     Assume we are being portscanned if more than
 				  webcount packets are received from port 80
-
-
-##About
-****   
-
-- author: `geeksword`
-- email: geeksword@163.com
-- blog: http://onestraw.net
-- reference: `watcher.c`
