@@ -8,6 +8,7 @@ _make()
 {
 	#build plugins
 	cd ./plugin
+	mkdir lib/
 	make
 	
 	cd  ..
