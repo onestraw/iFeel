@@ -1,4 +1,4 @@
-# iFeel
+# iFeel [![Build Status](https://travis-ci.org/onestraw/iFeel.svg?branch=master)](https://travis-ci.org/onestraw/iFeel)
 
 	 _ _____         _ 
 	(_)  ___|__  ___| |
